@@ -1,0 +1,21 @@
+# DeepTutor 后端依赖
+# Python 3.10+
+
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+
+# 配置：YAML + 可选运行时 JSON
+pyyaml>=6.0
+
+# HTTP 客户端（LLM / Embedding API）
+httpx>=0.26.0
+
+# RAG：Silicon Flow BGE embedding + 向量库 + BM25
+chromadb>=0.4.0
+rank_bm25>=0.2.2
+jieba>=0.42.1
+
+# PDF 解析（知识库上传）
+pymupdf>=1.23.0

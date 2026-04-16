@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math' as math;
 
 void main() {
   runApp(const NotebookLMApp());
@@ -38,7 +39,7 @@ class NotebookHome extends StatefulWidget {
   State<NotebookHome> createState() => _NotebookHomeState();
 }
 
-enum CenterViewMode { chat, document, learning, quiz }
+enum CenterViewMode { chat, document, learning, quiz, studioGraph }
 
 class ChatMessage {
   final String text;
@@ -87,6 +88,8 @@ class _NotebookHomeState extends State<NotebookHome> {
   bool _isLoadingSkillNodes = false;
   String? _learningNodeName;
   String? _learningContent;
+  Map<String, dynamic>? _studioGraphPayload;
+  String? _studioGraphLabel;
 
   bool _isGeneratingQuiz = false;
   bool _isSubmittingQuiz = false;
@@ -721,30 +724,86 @@ class _NotebookHomeState extends State<NotebookHome> {
   }
 
   // 处理右侧 Studio 功能按键的异步请求
-  Future<void> _handleStudioAction(String label) async {
+  String _resolveGraphLabel() {
+    if (_selectedDocument != null) {
+      final path = _stringOf(_selectedDocument!['file_path']);
+      final shortName = _shortFileName(path);
+      if (shortName.isNotEmpty) {
+        return shortName.replaceAll(RegExp(r'\.[^.]+$'), '');
+      }
+    }
+    for (var index = _messages.length - 1; index >= 0; index -= 1) {
+      final msg = _messages[index];
+      if (msg.isUser && msg.text.trim().isNotEmpty) {
+        return msg.text.trim();
+      }
+    }
+    return 'knowledge';
+  }
+
+  String _studioActionLabel(String action) {
+    const mapping = {
+      'audio_overview': '音频概览',
+      'video_overview': '视频概览',
+      'mindmap': '思维导图',
+      'report': '报告',
+      'flashcards': '闪卡',
+      'quiz': '测验',
+      'infographic': '信息图',
+      'presentation': '演示文稿',
+      'table': '数据表格',
+    };
+    return mapping[action] ?? action;
+  }
+
+  Future<void> _handleStudioAction(String action) async {
     if (_isGeneratingStudio) return; // 防止重复点击
 
     setState(() {
       _isGeneratingStudio = true;
-      _activeStudioTool = label;
+      _activeStudioTool = _studioActionLabel(action);
     });
 
     try {
-      final result = await _apiGet(
-        '/api/learning/query',
-        query: {
-          'query': '基于当前已上传学习资料，生成一份「$label」草稿。',
+      if (action == 'mindmap' || action == 'infographic') {
+        final label = _resolveGraphLabel();
+        final graphResult = await _apiGet(
+          '/api/learning/graph',
+          query: {
+            'label': label,
+            'max_depth': '3',
+            'max_nodes': action == 'infographic' ? '80' : '120',
+          },
+        );
+        if (!mounted) return;
+        setState(() {
+          _isGeneratingStudio = false;
+          _activeStudioTool = null;
+          _studioGraphPayload = graphResult;
+          _studioGraphLabel = label;
+          _centerMode = CenterViewMode.studioGraph;
+        });
+        return;
+      }
+
+      final topic = _resolveGraphLabel();
+      final result = await _apiPost(
+        '/api/learning/studio/generate',
+        body: {
+          'action': action,
+          'topic': topic,
           'mode': _qaMode,
-          'include_references': _includeReferences ? 'true' : 'false',
         },
       );
-      final reply = (result['response'] ?? '').toString();
+      final reply = (result['content'] ?? '').toString();
+      final note = (result['capability_note'] ?? '').toString();
       if (!mounted) return;
       setState(() {
         _isGeneratingStudio = false;
         _activeStudioTool = null;
+        _centerMode = CenterViewMode.chat;
         _messages.add(ChatMessage(
-          text: reply.isEmpty ? "🎉 您的【$label】已经生成完毕。" : reply,
+          text: reply.isEmpty ? "🎉 您的【${_studioActionLabel(action)}】已经生成完毕。" : "$note\n\n$reply",
           isUser: false,
         ));
       });
@@ -841,6 +900,8 @@ class _NotebookHomeState extends State<NotebookHome> {
           _buildTopButton(Icons.school_outlined, "学习", onTap: () => setState(() => _centerMode = CenterViewMode.learning)),
           const SizedBox(width: 8),
           _buildTopButton(Icons.quiz_outlined, "测验", onTap: () => setState(() => _centerMode = CenterViewMode.quiz)),
+          const SizedBox(width: 8),
+          _buildTopButton(Icons.account_tree_outlined, "图谱", onTap: () => setState(() => _centerMode = CenterViewMode.studioGraph)),
           const SizedBox(width: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1207,6 +1268,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                     _modeChip('文档', _centerMode == CenterViewMode.document, () => setState(() => _centerMode = CenterViewMode.document)),
                     _modeChip('学习', _centerMode == CenterViewMode.learning, () => setState(() => _centerMode = CenterViewMode.learning)),
                     _modeChip('测验', _centerMode == CenterViewMode.quiz, () => setState(() => _centerMode = CenterViewMode.quiz)),
+                    _modeChip('图谱', _centerMode == CenterViewMode.studioGraph, () => setState(() => _centerMode = CenterViewMode.studioGraph)),
                   ],
                 ),
               ],
@@ -1359,10 +1421,171 @@ class _NotebookHomeState extends State<NotebookHome> {
         return _buildLearningView();
       case CenterViewMode.quiz:
         return _buildQuizView();
+      case CenterViewMode.studioGraph:
+        return _buildStudioGraphView();
       case CenterViewMode.chat:
       default:
         return _buildChatView();
     }
+  }
+
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    if (value is List) {
+      return value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+    }
+    return const [];
+  }
+
+  String _readStringByKeys(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value != null) {
+        final text = value.toString().trim();
+        if (text.isNotEmpty) return text;
+      }
+    }
+    return '';
+  }
+
+  Map<String, dynamic> _getGraphRoot(dynamic payload) {
+    if (payload is Map<String, dynamic>) {
+      final graph = payload['graph'];
+      if (graph is Map) {
+        return Map<String, dynamic>.from(graph);
+      }
+      return payload;
+    }
+    return {};
+  }
+
+  List<_GraphNodeVm> _extractGraphNodes(Map<String, dynamic> graphRoot) {
+    dynamic rawNodes;
+    for (final key in ['nodes', 'vertices', 'entities', 'items']) {
+      if (graphRoot.containsKey(key)) {
+        rawNodes = graphRoot[key];
+        break;
+      }
+    }
+    final parsed = <_GraphNodeVm>[];
+    final seen = <String>{};
+    for (final item in _asMapList(rawNodes)) {
+      final id = _readStringByKeys(item, ['id', 'node_id', 'name', 'label', 'entity']);
+      if (id.isEmpty || seen.contains(id)) continue;
+      seen.add(id);
+      final label = _readStringByKeys(item, ['label', 'name', 'entity', 'title']);
+      parsed.add(_GraphNodeVm(id: id, label: label.isEmpty ? id : label));
+    }
+    return parsed;
+  }
+
+  List<_GraphEdgeVm> _extractGraphEdges(Map<String, dynamic> graphRoot) {
+    dynamic rawEdges;
+    for (final key in ['edges', 'links', 'relations', 'relationships']) {
+      if (graphRoot.containsKey(key)) {
+        rawEdges = graphRoot[key];
+        break;
+      }
+    }
+    final parsed = <_GraphEdgeVm>[];
+    for (final item in _asMapList(rawEdges)) {
+      final source = _readStringByKeys(item, ['source', 'from', 'src', 'start', 'head']);
+      final target = _readStringByKeys(item, ['target', 'to', 'dst', 'end', 'tail']);
+      if (source.isEmpty || target.isEmpty) continue;
+      final label = _readStringByKeys(item, ['label', 'type', 'relation', 'name']);
+      parsed.add(_GraphEdgeVm(source: source, target: target, label: label));
+    }
+    return parsed;
+  }
+
+  Widget _buildStudioGraphView() {
+    final payload = _studioGraphPayload;
+    if (payload == null) {
+      return Center(
+        child: Text(
+          '请在右侧 Studio 点击「思维导图」或「信息图」生成图谱',
+          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        ),
+      );
+    }
+
+    final graphRoot = _getGraphRoot(payload);
+    final nodes = _extractGraphNodes(graphRoot);
+    final edges = _extractGraphEdges(graphRoot);
+
+    if (nodes.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '图谱结果为空（label: ${_studioGraphLabel ?? ''}）',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '可尝试先上传文档并等待 LightRAG 处理完成，再重新生成。',
+              style: TextStyle(color: Colors.white.withOpacity(0.7)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final size = const Size(1200, 760);
+    final positions = _layoutCircular(nodes, size);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Text(
+              '知识图谱：${_studioGraphLabel ?? ''}（节点 ${nodes.length} / 边 ${edges.length}）',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                color: const Color(0xFF171819),
+                child: InteractiveViewer(
+                  minScale: 0.3,
+                  maxScale: 4,
+                  constrained: false,
+                  child: CustomPaint(
+                    size: size,
+                    painter: _KnowledgeGraphPainter(
+                      nodes: nodes,
+                      edges: edges,
+                      positions: positions,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, Offset> _layoutCircular(List<_GraphNodeVm> nodes, Size size) {
+    final map = <String, Offset>{};
+    if (nodes.isEmpty) return map;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) * 0.36;
+    for (var index = 0; index < nodes.length; index += 1) {
+      final angle = (2 * math.pi * index) / nodes.length;
+      map[nodes[index].id] = Offset(
+        center.dx + radius * math.cos(angle),
+        center.dy + radius * math.sin(angle),
+      );
+    }
+    return map;
   }
 
   Widget _buildChatView() {
@@ -1816,15 +2039,15 @@ class _NotebookHomeState extends State<NotebookHome> {
               mainAxisSpacing: 12,
               childAspectRatio: 1.2,
               children: [
-                _buildStudioTool(Icons.graphic_eq, "音频概览", () => _handleStudioAction("音频概览")),
-                _buildStudioTool(Icons.play_circle_outline, "视频概览", () => _handleStudioAction("视频概览")),
-                _buildStudioTool(Icons.account_tree_outlined, "思维导图", () => _handleStudioAction("思维导图")),
-                _buildStudioTool(Icons.description_outlined, "报告", () => _handleStudioAction("报告")),
-                _buildStudioTool(Icons.style_outlined, "闪卡", () => _handleStudioAction("闪卡")),
-                _buildStudioTool(Icons.help_outline, "测验", () => _handleStudioAction("测验")),
-                _buildStudioTool(Icons.insert_chart_outlined, "信息图", () => _handleStudioAction("信息图")),
-                _buildStudioTool(Icons.slideshow, "演示文稿", () => _handleStudioAction("演示文稿")),
-                _buildStudioTool(Icons.table_chart_outlined, "数据表格", () => _handleStudioAction("数据表格")),
+                _buildStudioTool(Icons.graphic_eq, "音频概览", () => _handleStudioAction("audio_overview")),
+                _buildStudioTool(Icons.play_circle_outline, "视频概览", () => _handleStudioAction("video_overview")),
+                _buildStudioTool(Icons.account_tree_outlined, "思维导图", () => _handleStudioAction("mindmap")),
+                _buildStudioTool(Icons.description_outlined, "报告", () => _handleStudioAction("report")),
+                _buildStudioTool(Icons.style_outlined, "闪卡", () => _handleStudioAction("flashcards")),
+                _buildStudioTool(Icons.help_outline, "测验", () => _handleStudioAction("quiz")),
+                _buildStudioTool(Icons.insert_chart_outlined, "信息图", () => _handleStudioAction("infographic")),
+                _buildStudioTool(Icons.slideshow, "演示文稿", () => _handleStudioAction("presentation")),
+                _buildStudioTool(Icons.table_chart_outlined, "数据表格", () => _handleStudioAction("table")),
               ],
             ),
           ),
@@ -2012,5 +2235,99 @@ class _NotebookHomeState extends State<NotebookHome> {
         ),
       ),
     );
+  }
+}
+
+class _GraphNodeVm {
+  final String id;
+  final String label;
+
+  const _GraphNodeVm({
+    required this.id,
+    required this.label,
+  });
+}
+
+class _GraphEdgeVm {
+  final String source;
+  final String target;
+  final String label;
+
+  const _GraphEdgeVm({
+    required this.source,
+    required this.target,
+    this.label = '',
+  });
+}
+
+class _KnowledgeGraphPainter extends CustomPainter {
+  final List<_GraphNodeVm> nodes;
+  final List<_GraphEdgeVm> edges;
+  final Map<String, Offset> positions;
+
+  const _KnowledgeGraphPainter({
+    required this.nodes,
+    required this.edges,
+    required this.positions,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final edgePaint = Paint()
+      ..color = Colors.white24
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    final nodePaint = Paint()
+      ..color = const Color(0xFF6EA8FE)
+      ..style = PaintingStyle.fill;
+
+    final borderPaint = Paint()
+      ..color = Colors.white70
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    for (final edge in edges) {
+      final start = positions[edge.source];
+      final end = positions[edge.target];
+      if (start == null || end == null) continue;
+      canvas.drawLine(start, end, edgePaint);
+    }
+
+    for (final node in nodes) {
+      final point = positions[node.id];
+      if (point == null) continue;
+      canvas.drawCircle(point, 24, nodePaint);
+      canvas.drawCircle(point, 24, borderPaint);
+
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: node.label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        maxLines: 2,
+        ellipsis: '…',
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 130);
+
+      textPainter.paint(
+        canvas,
+        Offset(
+          point.dx - textPainter.width / 2,
+          point.dy + 28,
+        ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _KnowledgeGraphPainter oldDelegate) {
+    return oldDelegate.nodes != nodes ||
+        oldDelegate.edges != edges ||
+        oldDelegate.positions != positions;
   }
 }

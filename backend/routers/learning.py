@@ -73,6 +73,85 @@ def _build_studio_prompt(action: str, topic: str) -> Dict[str, Any]:
         "capability_note": "可直接生成。"
     }
 
+def _build_studio_prompt_v2(action: str, topic: str) -> Dict[str, Any]:
+    action_key = action.strip().lower()
+    specs = {
+        "audio_overview": {
+            "title": "音频概览脚本",
+            "prompt": (
+                f"请基于主题「{topic}」生成可朗读的音频概览脚本（纯文本）。"
+                "输出：1) 3分钟口播稿；2) 段落节奏标记；3) 关键点清单；4) 可选BGM风格建议。"
+                "不要输出音频文件。"
+            ),
+            "delivery_type": "text_script",
+            "capability_note": "支持生成脚本文本，不直接生成音频文件。"
+        },
+        "video_overview": {
+            "title": "视频概览分镜",
+            "prompt": (
+                f"请基于主题「{topic}」生成视频概览分镜脚本（纯文本）。"
+                "输出：1) 镜头编号与时长；2) 画面描述；3) 旁白文案；4) 结尾总结。"
+                "不要输出视频文件。"
+            ),
+            "delivery_type": "text_storyboard",
+            "capability_note": "支持生成分镜文本，不直接生成视频文件。"
+        },
+        "report": {
+            "title": "学习报告",
+            "prompt": (
+                f"请基于主题「{topic}」生成结构化学习报告。"
+                "包含：摘要、核心概念、概念关系、常见误区、学习建议、复习清单。"
+            ),
+            "delivery_type": "text_markdown",
+            "capability_note": "支持直接生成。"
+        },
+        "flashcards": {
+            "title": "闪卡集合",
+            "prompt": (
+                f"请基于主题「{topic}」生成12张学习闪卡。"
+                "格式统一为：Q: ... / A: ... / Tag: ..."
+            ),
+            "delivery_type": "text_flashcards",
+            "capability_note": "支持直接生成。"
+        },
+        "quiz": {
+            "title": "测验文本",
+            "prompt": (
+                f"请基于主题「{topic}」生成测验文本：5道单选、3道判断、2道简答，"
+                "并附标准答案与评分要点。"
+            ),
+            "delivery_type": "text_quiz",
+            "capability_note": "支持直接生成。"
+        },
+        "presentation": {
+            "title": "演示文稿大纲",
+            "prompt": (
+                f"请基于主题「{topic}」生成10页演示文稿大纲。"
+                "每页给出：标题、要点、讲解备注。"
+            ),
+            "delivery_type": "text_slides",
+            "capability_note": "支持生成大纲文本，不直接导出PPT文件。"
+        },
+        "table": {
+            "title": "数据表格",
+            "prompt": (
+                f"请基于主题「{topic}」生成Markdown表格（至少8行），"
+                "列建议：概念、定义、示例、易错点、应用场景。"
+            ),
+            "delivery_type": "text_table",
+            "capability_note": "支持直接生成。"
+        },
+    }
+    if action_key in specs:
+        return specs[action_key]
+    return {
+        "title": "学习草稿",
+        "prompt": f"请基于主题「{topic}」生成结构化学习草稿。",
+        "delivery_type": "text",
+        "capability_note": "支持直接生成。"
+    }
+
+
 @router.get("/query")
 async def query_knowledge(query: str, mode: str = "mix", include_references: bool = False):
     result = await lightrag_client.query(query, mode, include_references)
@@ -87,7 +166,7 @@ async def query_knowledge(query: str, mode: str = "mix", include_references: boo
 @router.post("/studio/generate")
 async def studio_generate(request: StudioGenerateRequest):
     try:
-        spec = _build_studio_prompt(request.action, request.topic)
+        spec = _build_studio_prompt_v2(request.action, request.topic)
         result = await lightrag_client.query(
             query=spec["prompt"],
             mode=request.mode,
@@ -95,6 +174,7 @@ async def studio_generate(request: StudioGenerateRequest):
         )
         return {
             "action": request.action,
+            "title": spec.get("title", request.action),
             "topic": request.topic,
             "mode": request.mode,
             "delivery_type": spec["delivery_type"],

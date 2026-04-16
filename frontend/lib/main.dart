@@ -21,13 +21,13 @@ class NotebookLMApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF131314), // 主背景色
-        primaryColor: const Color(0xFFA8C7FA), // Google 蓝色系
+        scaffoldBackgroundColor: const Color(0xFF131314), // 涓昏儗鏅壊
+        primaryColor: const Color(0xFFA8C7FA), // Google 钃濊壊绯?
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFFA8C7FA),
-          surface: Color(0xFF1E1F20), // 面板背景色
+          surface: Color(0xFF1E1F20), // 闈㈡澘鑳屾櫙鑹?
         ),
-        fontFamily: 'Microsoft YaHei', // Windows 默认友好字体
+        fontFamily: 'Microsoft YaHei', // Windows 榛樿鍙嬪ソ瀛椾綋
       ),
       home: const NotebookHome(),
     );
@@ -41,7 +41,7 @@ class NotebookHome extends StatefulWidget {
   State<NotebookHome> createState() => _NotebookHomeState();
 }
 
-enum CenterViewMode { chat, document, learning, quiz, studioGraph }
+enum CenterViewMode { chat, document, learning, quiz, studioGraph, studioText }
 
 class ChatMessage {
   final String text;
@@ -50,7 +50,7 @@ class ChatMessage {
   ChatMessage({required this.text, required this.isUser, this.references = const []});
 }
 
-// 新增笔记本数据模型
+// 鏂板绗旇鏈暟鎹ā鍨?
 class Notebook {
   final String id;
   String title;
@@ -58,17 +58,15 @@ class Notebook {
 }
 
 class _NotebookHomeState extends State<NotebookHome> {
-  // 新增 Scaffold 全局 Key，用于控制抽屉弹出
+  // 鏂板 Scaffold 鍏ㄥ眬 Key锛岀敤浜庢帶鍒舵娊灞夊脊鍑?
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _chatController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   
-  // 新增异步请求的状态锁
-  bool _isThinking = false; // 控制聊天等待状态
-  bool _isUploading = false; // 控制文件上传状态
-  bool _isGeneratingStudio = false; // 控制 Studio 面板生成状态
-  String? _activeStudioTool; // 记录当前正在生成哪个工具
+  // 鏂板寮傛璇锋眰鐨勭姸鎬侀攣
+  bool _isThinking = false; // 鎺у埗鑱婂ぉ绛夊緟鐘舵€?
+  bool _isUploading = false; // 鎺у埗鏂囦欢涓婁紶鐘舵€?  bool _isGeneratingStudio = false; // 鎺у埗 Studio 闈㈡澘鐢熸垚鐘舵€?  String? _activeStudioTool; // 璁板綍褰撳墠姝ｅ湪鐢熸垚鍝釜宸ュ叿
   CenterViewMode _centerMode = CenterViewMode.chat;
   String _qaMode = 'mix';
   bool _includeReferences = false;
@@ -92,6 +90,10 @@ class _NotebookHomeState extends State<NotebookHome> {
   String? _learningContent;
   Map<String, dynamic>? _studioGraphPayload;
   String? _studioGraphLabel;
+  String? _studioTextTitle;
+  String? _studioTextType;
+  String? _studioTextTopic;
+  String? _studioTextContent;
   final GlobalKey _graphExportKey = GlobalKey();
   bool _isExportingGraph = false;
 
@@ -104,12 +106,11 @@ class _NotebookHomeState extends State<NotebookHome> {
   Map<String, dynamic> _quizAnswers = {};
   Map<String, dynamic>? _quizResult;
 
-  // 新增笔记本列表相关状态
+  // 鏂板绗旇鏈垪琛ㄧ浉鍏崇姸鎬?
   List<Notebook> _notebooks = [];
   Notebook? _currentNotebook;
-  bool _isLoadingNotebooks = false; // 控制列表拉取等待状态
-  bool _isCreatingNotebook = false; // 控制新建笔记本等待状态
-  final String _apiBaseUrl = _resolveApiBaseUrl();
+  bool _isLoadingNotebooks = false; // 鎺у埗鍒楄〃鎷夊彇绛夊緟鐘舵€?
+  bool _isCreatingNotebook = false; // 鎺у埗鏂板缓绗旇鏈瓑寰呯姸鎬?  final String _apiBaseUrl = _resolveApiBaseUrl();
 
   static String _resolveApiBaseUrl() {
     const defined = String.fromEnvironment('API_BASE_URL');
@@ -196,23 +197,23 @@ class _NotebookHomeState extends State<NotebookHome> {
   String _statusText(String status) {
     switch (status.toLowerCase()) {
       case 'processed':
-        return '已处理';
+        return '宸插鐞?;
       case 'processing':
-        return '处理中';
+        return '澶勭悊涓?;
       case 'pending':
-        return '等待中';
+        return '绛夊緟涓?;
       case 'failed':
-        return '失败';
+        return '澶辫触';
       case 'preprocessed':
-        return '预处理';
+        return '棰勫鐞?;
       case 'completed':
-        return '已完成';
+        return '宸插畬鎴?;
       case 'learning':
-        return '学习中';
+        return '瀛︿範涓?;
       case 'available':
-        return '可学习';
+        return '鍙涔?;
       case 'locked':
-        return '未解锁';
+        return '鏈В閿?;
       default:
         return status;
     }
@@ -264,7 +265,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     final uri = Uri.parse('$_apiBaseUrl$path').replace(queryParameters: query);
     final response = await http.get(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('GET $path 失败: ${response.statusCode} ${response.body}');
+      throw Exception('GET $path 澶辫触: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
     if (decoded is Map<String, dynamic>) {
@@ -277,7 +278,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     final uri = Uri.parse('$_apiBaseUrl$path').replace(queryParameters: query);
     final response = await http.get(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('GET $path 失败: ${response.statusCode} ${response.body}');
+      throw Exception('GET $path 澶辫触: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
     if (decoded is List) return decoded;
@@ -295,7 +296,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       body: body == null ? null : jsonEncode(body),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('POST $path 失败: ${response.statusCode} ${response.body}');
+      throw Exception('POST $path 澶辫触: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
     if (decoded is Map<String, dynamic>) {
@@ -308,7 +309,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     final uri = Uri.parse('$_apiBaseUrl$path');
     final response = await http.delete(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('DELETE $path 失败: ${response.statusCode} ${response.body}');
+      throw Exception('DELETE $path 澶辫触: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
     if (decoded is Map<String, dynamic>) {
@@ -330,7 +331,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     final response = await request.send();
     final body = await response.stream.bytesToString();
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('上传 $filename 失败: ${response.statusCode} $body');
+      throw Exception('涓婁紶 $filename 澶辫触: ${response.statusCode} $body');
     }
     return jsonDecode(body) as Map<String, dynamic>;
   }
@@ -402,7 +403,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 新建笔记本 (预留后端接口)
+  // 鏂板缓绗旇鏈?(棰勭暀鍚庣鎺ュ彛)
   Future<void> _createNewNotebook() async {
     if (_isCreatingNotebook) return;
     setState(() => _isCreatingNotebook = true);
@@ -410,7 +411,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     if (!mounted) return;
     setState(() => _isCreatingNotebook = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('后端暂无 Notebook 实体，请通过“添加来源”创建内容')),
+      const SnackBar(content: Text('鍚庣鏆傛棤 Notebook 瀹炰綋锛岃閫氳繃鈥滄坊鍔犳潵婧愨€濆垱寤哄唴瀹?)),
     );
   }
 
@@ -471,7 +472,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       await _refreshSkillNodes();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('文档已删除')),
+        const SnackBar(content: Text('鏂囨。宸插垹闄?)),
       );
     } catch (error) {
       await _showError(error);
@@ -502,8 +503,8 @@ class _NotebookHomeState extends State<NotebookHome> {
       final result = await _apiGet('/api/skill-tree/nodes/$nodeId/learning-content');
       if (!mounted) return;
       setState(() {
-        _learningNodeName = _stringOf(node['name'], fallback: '学习内容');
-        _learningContent = _stringOf(result['content'], fallback: '未返回学习内容');
+        _learningNodeName = _stringOf(node['name'], fallback: '瀛︿範鍐呭');
+        _learningContent = _stringOf(result['content'], fallback: '鏈繑鍥炲涔犲唴瀹?);
         _centerMode = CenterViewMode.learning;
       });
       await _refreshSkillNodes();
@@ -520,7 +521,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       await _refreshSkillNodes();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已标记为完成')),
+        const SnackBar(content: Text('宸叉爣璁颁负瀹屾垚')),
       );
     } catch (error) {
       await _showError(error);
@@ -564,7 +565,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     if (_quizNodeId == null || _quizQuestions.isEmpty) return;
     if (_quizAnswers.length < _quizQuestions.length) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先回答所有题目')),
+        const SnackBar(content: Text('璇峰厛鍥炵瓟鎵€鏈夐鐩?)),
       );
       return;
     }
@@ -587,7 +588,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 切换选中笔记本 (预留后端接口)
+  // 鍒囨崲閫変腑绗旇鏈?(棰勭暀鍚庣鎺ュ彛)
   Future<void> _switchNotebook(Notebook nb) async {
     final doc = _documents.firstWhere(
       (d) => _stringOf(d['id']) == nb.id,
@@ -600,7 +601,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     _scaffoldKey.currentState?.closeDrawer();
   }
 
-  // 唤起本地文件上传窗口
+  // 鍞よ捣鏈湴鏂囦欢涓婁紶绐楀彛
   Future<void> _pickFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -634,32 +635,32 @@ class _NotebookHomeState extends State<NotebookHome> {
           _isUploading = false;
           if (uploadedNames.isNotEmpty) {
             _messages.add(ChatMessage(
-              text: "✅ 已成功上传并解析: ${uploadedNames.join(', ')}",
+              text: "鉁?宸叉垚鍔熶笂浼犲苟瑙ｆ瀽: ${uploadedNames.join(', ')}",
               isUser: true,
             ));
           }
           if (failedCount > 0) {
             _messages.add(ChatMessage(
-              text: "⚠️ $failedCount 个文件上传失败，请检查后端或 LightRAG 状态。",
+              text: "鈿狅笍 $failedCount 涓枃浠朵笂浼犲け璐ワ紝璇锋鏌ュ悗绔垨 LightRAG 鐘舵€併€?,
               isUser: false,
             ));
           }
         });
         _scrollToBottom();
         if (uploadedNames.isNotEmpty) {
-          _simulateBackendResponse("文件已接收并入库。你现在可以直接提问文档内容。");
+          _simulateBackendResponse("鏂囦欢宸叉帴鏀跺苟鍏ュ簱銆備綘鐜板湪鍙互鐩存帴鎻愰棶鏂囨。鍐呭銆?);
         }
       }
     } catch (e) {
       setState(() {
         _isUploading = false;
       });
-      debugPrint("文件选择出错: $e");
+      debugPrint("鏂囦欢閫夋嫨鍑洪敊: $e");
     }
   }
 
-  // 发送消息并调用大模型 API (预留接口)
-  // 发送消息并调用大模型 API (预留接口)
+  // 鍙戦€佹秷鎭苟璋冪敤澶фā鍨?API (棰勭暀鎺ュ彛)
+  // 鍙戦€佹秷鎭苟璋冪敤澶фā鍨?API (棰勭暀鎺ュ彛)
   void _sendMessage() {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
@@ -667,8 +668,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     setState(() {
       _messages.add(ChatMessage(text: text, isUser: true));
       _chatController.clear();
-      _isThinking = true; // 开启对话等待气泡
-      _centerMode = CenterViewMode.chat;
+      _isThinking = true; // 寮€鍚璇濈瓑寰呮皵娉?      _centerMode = CenterViewMode.chat;
     });
     _scrollToBottom();
 
@@ -694,7 +694,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       setState(() {
         _isThinking = false;
         _messages.add(ChatMessage(
-          text: reply.isEmpty ? '后端已响应，但未返回内容。' : reply,
+          text: reply.isEmpty ? '鍚庣宸插搷搴旓紝浣嗘湭杩斿洖鍐呭銆? : reply,
           isUser: false,
           references: refs,
         ));
@@ -705,7 +705,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       setState(() {
         _isThinking = false;
         _messages.add(ChatMessage(
-          text: "请求失败：$e",
+          text: "璇锋眰澶辫触锛?e",
           isUser: false,
         ));
       });
@@ -713,9 +713,9 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 模拟后端延迟回复 (异步处理)
+  // 妯℃嫙鍚庣寤惰繜鍥炲 (寮傛澶勭悊)
   Future<void> _simulateBackendResponse(String responseText) async {
-    // 模拟等待模型生成文本的耗时
+    // 妯℃嫙绛夊緟妯″瀷鐢熸垚鏂囨湰鐨勮€楁椂
     await Future.delayed(const Duration(milliseconds: 1500));
     
     if (mounted) {
@@ -727,7 +727,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 处理右侧 Studio 功能按键的异步请求
+  // 澶勭悊鍙充晶 Studio 鍔熻兘鎸夐敭鐨勫紓姝ヨ姹?
   String _resolveGraphLabel() {
     if (_selectedDocument != null) {
       final path = _stringOf(_selectedDocument!['file_path']);
@@ -747,21 +747,21 @@ class _NotebookHomeState extends State<NotebookHome> {
 
   String _studioActionLabel(String action) {
     const mapping = {
-      'audio_overview': '音频概览',
-      'video_overview': '视频概览',
-      'mindmap': '思维导图',
-      'report': '报告',
-      'flashcards': '闪卡',
-      'quiz': '测验',
-      'infographic': '信息图',
-      'presentation': '演示文稿',
-      'table': '数据表格',
+      'audio_overview': '闊抽姒傝',
+      'video_overview': '瑙嗛姒傝',
+      'mindmap': '鎬濈淮瀵煎浘',
+      'report': '鎶ュ憡',
+      'flashcards': '闂崱',
+      'quiz': '娴嬮獙',
+      'infographic': '淇℃伅鍥?,
+      'presentation': '婕旂ず鏂囩',
+      'table': '鏁版嵁琛ㄦ牸',
     };
     return mapping[action] ?? action;
   }
 
-  Future<void> _handleStudioAction(String action) async {
-    if (_isGeneratingStudio) return; // 防止重复点击
+    Future<void> _handleStudioAction(String action) async {
+    if (_isGeneratingStudio) return;
 
     setState(() {
       _isGeneratingStudio = true;
@@ -799,33 +799,29 @@ class _NotebookHomeState extends State<NotebookHome> {
           'mode': _qaMode,
         },
       );
+
       final reply = (result['content'] ?? '').toString();
       final note = (result['capability_note'] ?? '').toString();
+
       if (!mounted) return;
       setState(() {
         _isGeneratingStudio = false;
         _activeStudioTool = null;
-        _centerMode = CenterViewMode.chat;
-        _messages.add(ChatMessage(
-          text: reply.isEmpty ? "🎉 您的【${_studioActionLabel(action)}】已经生成完毕。" : "$note\n\n$reply",
-          isUser: false,
-        ));
+        _studioTextTitle = (result['title'] ?? _studioActionLabel(action)).toString();
+        _studioTextType = (result['delivery_type'] ?? '').toString();
+        _studioTextTopic = (result['topic'] ?? topic).toString();
+        _studioTextContent = reply.isEmpty ? '（模型未返回正文）' : '$note\n\n$reply';
+        _centerMode = CenterViewMode.studioText;
       });
-      _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isGeneratingStudio = false;
         _activeStudioTool = null;
-        _messages.add(ChatMessage(
-          text: "生成失败：$e",
-          isUser: false,
-        ));
       });
-      _scrollToBottom();
+      await _showError(e);
     }
   }
-
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -842,7 +838,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      drawer: _buildDrawer(), // 接入抽屉作为笔记本列表
+      drawer: _buildDrawer(), // 鎺ュ叆鎶藉眽浣滀负绗旇鏈垪琛?
       body: Column(
         children: [
           _buildTopAppBar(),
@@ -852,13 +848,13 @@ class _NotebookHomeState extends State<NotebookHome> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 左侧 - 来源面板
+                  // 宸︿晶 - 鏉ユ簮闈㈡澘
                   Expanded(flex: 2, child: _buildLeftPanel()),
                   const SizedBox(width: 12),
-                  // 中间 - 对话面板
+                  // 涓棿 - 瀵硅瘽闈㈡澘
                   Expanded(flex: 5, child: _buildCenterPanel()),
                   const SizedBox(width: 12),
-                  // 右侧 - Studio 面板
+                  // 鍙充晶 - Studio 闈㈡澘
                   Expanded(flex: 3, child: _buildRightPanel()),
                 ],
               ),
@@ -869,7 +865,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 顶部导航栏
+  // 椤堕儴瀵艰埅鏍?
   Widget _buildTopAppBar() {
     return Container(
       height: 60,
@@ -888,24 +884,24 @@ class _NotebookHomeState extends State<NotebookHome> {
           ),
           const SizedBox(width: 12),
           Text(
-            _isLoadingNotebooks ? "加载中..." : (_currentNotebook?.title ?? "Untitled notebook"),
+            _isLoadingNotebooks ? "鍔犺浇涓?.." : (_currentNotebook?.title ?? "Untitled notebook"),
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
           ),
           const Spacer(),
           _buildTopButton(
             Icons.add, 
-            _isCreatingNotebook ? "创建中..." : "创建笔记本", 
+            _isCreatingNotebook ? "鍒涘缓涓?.." : "鍒涘缓绗旇鏈?, 
             onTap: _createNewNotebook,
             isLoading: _isCreatingNotebook,
           ),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.analytics_outlined, "文档", onTap: () => setState(() => _centerMode = CenterViewMode.document)),
+          _buildTopButton(Icons.analytics_outlined, "鏂囨。", onTap: () => setState(() => _centerMode = CenterViewMode.document)),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.school_outlined, "学习", onTap: () => setState(() => _centerMode = CenterViewMode.learning)),
+          _buildTopButton(Icons.school_outlined, "瀛︿範", onTap: () => setState(() => _centerMode = CenterViewMode.learning)),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.quiz_outlined, "测验", onTap: () => setState(() => _centerMode = CenterViewMode.quiz)),
+          _buildTopButton(Icons.quiz_outlined, "娴嬮獙", onTap: () => setState(() => _centerMode = CenterViewMode.quiz)),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.account_tree_outlined, "图谱", onTap: () => setState(() => _centerMode = CenterViewMode.studioGraph)),
+          _buildTopButton(Icons.account_tree_outlined, "鍥捐氨", onTap: () => setState(() => _centerMode = CenterViewMode.studioGraph)),
           const SizedBox(width: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -957,7 +953,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 笔记本列表侧边栏 (Drawer)
+  // 绗旇鏈垪琛ㄤ晶杈规爮 (Drawer)
   Widget _buildDrawer() {
     return Drawer(
       backgroundColor: const Color(0xFF1E1F20),
@@ -971,7 +967,7 @@ class _NotebookHomeState extends State<NotebookHome> {
               border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
             ),
             child: const Text(
-              "我的笔记本",
+              "鎴戠殑绗旇鏈?,
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
             ),
           ),
@@ -1016,7 +1012,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 左侧面板
+  // 宸︿晶闈㈡澘
   Widget _buildLeftPanel() {
     return Container(
       decoration: BoxDecoration(
@@ -1031,7 +1027,7 @@ class _NotebookHomeState extends State<NotebookHome> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("来源", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+              const Text("鏉ユ簮", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
               Icon(Icons.view_sidebar_outlined, color: Colors.white.withOpacity(0.6), size: 20),
             ],
           ),
@@ -1050,7 +1046,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                       ),
                     )
                   : const Icon(Icons.add, size: 18),
-              label: Text(_isUploading ? "正在上传解析..." : "添加来源"),
+              label: Text(_isUploading ? "姝ｅ湪涓婁紶瑙ｆ瀽..." : "娣诲姞鏉ユ簮"),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
                 side: BorderSide(color: Colors.white.withOpacity(0.2)),
@@ -1076,12 +1072,12 @@ class _NotebookHomeState extends State<NotebookHome> {
                     ),
                   ),
                   items: const [
-                    DropdownMenuItem<String?>(value: null, child: Text('全部状态')),
-                    DropdownMenuItem<String?>(value: 'processed', child: Text('已处理')),
-                    DropdownMenuItem<String?>(value: 'processing', child: Text('处理中')),
-                    DropdownMenuItem<String?>(value: 'pending', child: Text('等待中')),
-                    DropdownMenuItem<String?>(value: 'failed', child: Text('失败')),
-                    DropdownMenuItem<String?>(value: 'preprocessed', child: Text('预处理')),
+                    DropdownMenuItem<String?>(value: null, child: Text('鍏ㄩ儴鐘舵€?)),
+                    DropdownMenuItem<String?>(value: 'processed', child: Text('宸插鐞?)),
+                    DropdownMenuItem<String?>(value: 'processing', child: Text('澶勭悊涓?)),
+                    DropdownMenuItem<String?>(value: 'pending', child: Text('绛夊緟涓?)),
+                    DropdownMenuItem<String?>(value: 'failed', child: Text('澶辫触')),
+                    DropdownMenuItem<String?>(value: 'preprocessed', child: Text('棰勫鐞?)),
                   ],
                   onChanged: (value) async {
                     setState(() => _documentsStatusFilter = value);
@@ -1103,14 +1099,14 @@ class _NotebookHomeState extends State<NotebookHome> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Text('共 $_documentsTotal 条', style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12)),
+              Text('鍏?$_documentsTotal 鏉?, style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12)),
               const Spacer(),
               TextButton.icon(
                 onPressed: () async {
                   await _refreshPipelineStatus();
                 },
                 icon: const Icon(Icons.sync, size: 14),
-                label: const Text('队列', style: TextStyle(fontSize: 11)),
+                label: const Text('闃熷垪', style: TextStyle(fontSize: 11)),
                 style: TextButton.styleFrom(foregroundColor: Colors.white70),
               ),
             ],
@@ -1120,15 +1116,15 @@ class _NotebookHomeState extends State<NotebookHome> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildStatusMetricCard('processed', '已处理'),
+                _buildStatusMetricCard('processed', '宸插鐞?),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('processing', '处理中'),
+                _buildStatusMetricCard('processing', '澶勭悊涓?),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('pending', '等待中'),
+                _buildStatusMetricCard('pending', '绛夊緟涓?),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('failed', '失败'),
+                _buildStatusMetricCard('failed', '澶辫触'),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('preprocessed', '预处理'),
+                _buildStatusMetricCard('preprocessed', '棰勫鐞?),
               ],
             ),
           ),
@@ -1140,7 +1136,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                 ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
                 : _documents.isEmpty
                     ? Center(
-                        child: Text('暂无文档来源', style: TextStyle(color: Colors.white.withOpacity(0.4))),
+                        child: Text('鏆傛棤鏂囨。鏉ユ簮', style: TextStyle(color: Colors.white.withOpacity(0.4))),
                       )
                     : ListView.builder(
                         itemCount: _documents.length,
@@ -1163,7 +1159,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  _shortFileName(_stringOf(doc['file_path'], fallback: '未命名文档')),
+                                  _shortFileName(_stringOf(doc['file_path'], fallback: '鏈懡鍚嶆枃妗?)),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
@@ -1179,14 +1175,14 @@ class _NotebookHomeState extends State<NotebookHome> {
                                     Expanded(
                                       child: OutlinedButton(
                                         onPressed: () => _loadDocumentDetail(doc),
-                                        child: const Text('查看', style: TextStyle(fontSize: 11)),
+                                        child: const Text('鏌ョ湅', style: TextStyle(fontSize: 11)),
                                       ),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
                                       child: OutlinedButton(
                                         onPressed: () => _deleteDocument(doc),
-                                        child: const Text('删除', style: TextStyle(fontSize: 11)),
+                                        child: const Text('鍒犻櫎', style: TextStyle(fontSize: 11)),
                                       ),
                                     ),
                                   ],
@@ -1207,7 +1203,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                           await _fetchDocuments();
                         }
                       : null,
-                  child: const Text('上一页'),
+                  child: const Text('涓婁竴椤?),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1219,7 +1215,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                           await _fetchDocuments();
                         }
                       : null,
-                  child: const Text('下一页'),
+                  child: const Text('涓嬩竴椤?),
                 ),
               ),
             ],
@@ -1249,7 +1245,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 中间面板
+  // 涓棿闈㈡澘
   Widget _buildCenterPanel() {
     return Container(
       decoration: BoxDecoration(
@@ -1263,16 +1259,17 @@ class _NotebookHomeState extends State<NotebookHome> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                const Text("工作区", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                const Text("宸ヤ綔鍖?, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                 const Spacer(),
                 Wrap(
                   spacing: 8,
                   children: [
-                    _modeChip('对话', _centerMode == CenterViewMode.chat, () => setState(() => _centerMode = CenterViewMode.chat)),
-                    _modeChip('文档', _centerMode == CenterViewMode.document, () => setState(() => _centerMode = CenterViewMode.document)),
-                    _modeChip('学习', _centerMode == CenterViewMode.learning, () => setState(() => _centerMode = CenterViewMode.learning)),
-                    _modeChip('测验', _centerMode == CenterViewMode.quiz, () => setState(() => _centerMode = CenterViewMode.quiz)),
-                    _modeChip('图谱', _centerMode == CenterViewMode.studioGraph, () => setState(() => _centerMode = CenterViewMode.studioGraph)),
+                    _modeChip('瀵硅瘽', _centerMode == CenterViewMode.chat, () => setState(() => _centerMode = CenterViewMode.chat)),
+                    _modeChip('鏂囨。', _centerMode == CenterViewMode.document, () => setState(() => _centerMode = CenterViewMode.document)),
+                    _modeChip('瀛︿範', _centerMode == CenterViewMode.learning, () => setState(() => _centerMode = CenterViewMode.learning)),
+                    _modeChip('娴嬮獙', _centerMode == CenterViewMode.quiz, () => setState(() => _centerMode = CenterViewMode.quiz)),
+                    _modeChip('鍥捐氨', _centerMode == CenterViewMode.studioGraph, () => setState(() => _centerMode = CenterViewMode.studioGraph)),
+                    _modeChip('Studio', _centerMode == CenterViewMode.studioText, () => setState(() => _centerMode = CenterViewMode.studioText)),
                   ],
                 ),
               ],
@@ -1350,7 +1347,7 @@ class _NotebookHomeState extends State<NotebookHome> {
           border: Border.all(color: Colors.white10),
         ),
         child: Text(
-          '暂无处理队列状态',
+          '鏆傛棤澶勭悊闃熷垪鐘舵€?,
           style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.6)),
         ),
       );
@@ -1359,7 +1356,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     final curBatch = _intOf(pipeline['cur_batch']);
     final totalBatch = _intOf(pipeline['batchs'], fallback: 1);
     final progress = totalBatch <= 0 ? 0.0 : (curBatch / totalBatch).clamp(0.0, 1.0);
-    final jobName = _stringOf(pipeline['job_name'], fallback: '未知任务');
+    final jobName = _stringOf(pipeline['job_name'], fallback: '鏈煡浠诲姟');
     final message = _stringOf(pipeline['latest_message'], fallback: '');
 
     return Container(
@@ -1383,7 +1380,7 @@ class _NotebookHomeState extends State<NotebookHome> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  busy ? '处理中：$jobName' : '处理队列空闲',
+                  busy ? '澶勭悊涓細$jobName' : '澶勭悊闃熷垪绌洪棽',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
@@ -1427,6 +1424,8 @@ class _NotebookHomeState extends State<NotebookHome> {
         return _buildQuizView();
       case CenterViewMode.studioGraph:
         return _buildStudioGraphView();
+      case CenterViewMode.studioText:
+        return _buildStudioTextView();
       case CenterViewMode.chat:
       default:
         return _buildChatView();
@@ -1508,13 +1507,13 @@ class _NotebookHomeState extends State<NotebookHome> {
     try {
       final boundary = _graphExportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) {
-        throw Exception('未找到可导出的图谱画布。');
+        throw Exception('鏈壘鍒板彲瀵煎嚭鐨勫浘璋辩敾甯冦€?);
       }
 
       final ui.Image image = await boundary.toImage(pixelRatio: 2.5);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) {
-        throw Exception('图谱导出失败：无法生成图片字节流。');
+        throw Exception('鍥捐氨瀵煎嚭澶辫触锛氭棤娉曠敓鎴愬浘鐗囧瓧鑺傛祦銆?);
       }
       final bytes = byteData.buffer.asUint8List();
 
@@ -1522,7 +1521,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       final filename = 'knowledge_graph_${_studioGraphLabel ?? 'export'}_$ts.png';
 
       final saveResult = await FilePicker.platform.saveFile(
-        dialogTitle: '导出知识图谱',
+        dialogTitle: '瀵煎嚭鐭ヨ瘑鍥捐氨',
         fileName: filename,
         bytes: bytes,
       );
@@ -1532,8 +1531,8 @@ class _NotebookHomeState extends State<NotebookHome> {
         SnackBar(
           content: Text(
             saveResult == null
-                ? '已取消导出'
-                : '导出成功：$filename',
+                ? '宸插彇娑堝鍑?
+                : '瀵煎嚭鎴愬姛锛?filename',
           ),
         ),
       );
@@ -1547,12 +1546,82 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
+  Widget _buildStudioTextView() {
+    final title = (_studioTextTitle ?? '').trim();
+    final topic = (_studioTextTopic ?? '').trim();
+    final type = (_studioTextType ?? '').trim();
+    final content = (_studioTextContent ?? '').trim();
+
+    if (content.isEmpty) {
+      return Center(
+        child: Text(
+          '请在右侧 Studio 选择“报告 / 闪卡 / 测验 / 演示文稿 / 表格 / 音频 / 视频”生成文本结果',
+          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title.isEmpty ? 'Studio 输出' : title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (type.isNotEmpty) _buildMetaTag('类型: $type'),
+              if (topic.isNotEmpty) _buildMetaTag('主题: $topic'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF171819),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.06)),
+              ),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  content,
+                  style: const TextStyle(fontSize: 14, height: 1.5),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetaTag(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 12, color: Colors.white70),
+      ),
+    );
+  }
   Widget _buildStudioGraphView() {
     final payload = _studioGraphPayload;
     if (payload == null) {
       return Center(
         child: Text(
-          '请在右侧 Studio 点击「思维导图」或「信息图」生成图谱',
+          '璇峰湪鍙充晶 Studio 鐐瑰嚮銆屾€濈淮瀵煎浘銆嶆垨銆屼俊鎭浘銆嶇敓鎴愬浘璋?,
           style: TextStyle(color: Colors.white.withOpacity(0.7)),
         ),
       );
@@ -1569,12 +1638,12 @@ class _NotebookHomeState extends State<NotebookHome> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '图谱结果为空（label: ${_studioGraphLabel ?? ''}）',
+              '鍥捐氨缁撴灉涓虹┖锛坙abel: ${_studioGraphLabel ?? ''}锛?,
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(
-              '可尝试先上传文档并等待 LightRAG 处理完成，再重新生成。',
+              '鍙皾璇曞厛涓婁紶鏂囨。骞剁瓑寰?LightRAG 澶勭悊瀹屾垚锛屽啀閲嶆柊鐢熸垚銆?,
               style: TextStyle(color: Colors.white.withOpacity(0.7)),
             ),
           ],
@@ -1596,7 +1665,7 @@ class _NotebookHomeState extends State<NotebookHome> {
               children: [
                 Expanded(
                   child: Text(
-                    '知识图谱：${_studioGraphLabel ?? ''}（节点 ${nodes.length} / 边 ${edges.length}）',
+                    '鐭ヨ瘑鍥捐氨锛?{_studioGraphLabel ?? ''}锛堣妭鐐?${nodes.length} / 杈?${edges.length}锛?,
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -1610,7 +1679,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.download_outlined, size: 16),
-                  label: const Text('导出 PNG'),
+                  label: const Text('瀵煎嚭 PNG'),
                 ),
               ],
             ),
@@ -1675,7 +1744,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Widget _buildDocumentDetailView() {
     if (_selectedDocument == null) {
       return Center(
-        child: Text('请在左侧选择文档', style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        child: Text('璇峰湪宸︿晶閫夋嫨鏂囨。', style: TextStyle(color: Colors.white.withOpacity(0.6))),
       );
     }
     if (_isLoadingDocumentDetail) {
@@ -1687,21 +1756,21 @@ class _NotebookHomeState extends State<NotebookHome> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
         Text(
-          _shortFileName(_stringOf(doc['file_path'], fallback: '未命名文档')),
+          _shortFileName(_stringOf(doc['file_path'], fallback: '鏈懡鍚嶆枃妗?)),
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         Text('ID: ${_stringOf(doc['id'])}', style: const TextStyle(color: Colors.white70)),
         const SizedBox(height: 4),
-        Text('状态: ${_statusText(status)}', style: TextStyle(color: _statusColor(status))),
+        Text('鐘舵€? ${_statusText(status)}', style: TextStyle(color: _statusColor(status))),
         const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(child: _metricCard('长度', '${_intOf(doc['content_length'])} 字符')),
+            Expanded(child: _metricCard('闀垮害', '${_intOf(doc['content_length'])} 瀛楃')),
             const SizedBox(width: 8),
-            Expanded(child: _metricCard('分块', '${_intOf(doc['chunks_count'])}')),
+            Expanded(child: _metricCard('鍒嗗潡', '${_intOf(doc['chunks_count'])}')),
             const SizedBox(width: 8),
-            Expanded(child: _metricCard('更新', _stringOf(doc['updated_at']).replaceFirst('T', ' ').split('.').first)),
+            Expanded(child: _metricCard('鏇存柊', _stringOf(doc['updated_at']).replaceFirst('T', ' ').split('.').first)),
           ],
         ),
         const SizedBox(height: 16),
@@ -1713,7 +1782,7 @@ class _NotebookHomeState extends State<NotebookHome> {
             border: Border.all(color: Colors.white10),
           ),
           child: Text(
-            _stringOf(doc['content_summary'], fallback: '暂无摘要'),
+            _stringOf(doc['content_summary'], fallback: '鏆傛棤鎽樿'),
             style: const TextStyle(height: 1.4, color: Colors.white70),
           ),
         ),
@@ -1721,13 +1790,13 @@ class _NotebookHomeState extends State<NotebookHome> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('关联知识点', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            Text('${_documentKnowledgeNodes.length} 个', style: const TextStyle(color: Colors.white70)),
+            const Text('鍏宠仈鐭ヨ瘑鐐?, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            Text('${_documentKnowledgeNodes.length} 涓?, style: const TextStyle(color: Colors.white70)),
           ],
         ),
         const SizedBox(height: 8),
         if (_documentKnowledgeNodes.isEmpty)
-          Text('暂无知识点', style: TextStyle(color: Colors.white.withOpacity(0.5)))
+          Text('鏆傛棤鐭ヨ瘑鐐?, style: TextStyle(color: Colors.white.withOpacity(0.5)))
         else
           ..._documentKnowledgeNodes.take(20).map(_knowledgeNodeTile),
       ],
@@ -1748,9 +1817,9 @@ class _NotebookHomeState extends State<NotebookHome> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_stringOf(node['name'], fallback: '未命名知识点'), style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(_stringOf(node['name'], fallback: '鏈懡鍚嶇煡璇嗙偣'), style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          Text(_stringOf(node['description'], fallback: '暂无描述'), style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          Text(_stringOf(node['description'], fallback: '鏆傛棤鎻忚堪'), style: const TextStyle(fontSize: 12, color: Colors.white70)),
           const SizedBox(height: 6),
           LinearProgressIndicator(
             value: (mastery.clamp(0, 100)) / 100,
@@ -1759,7 +1828,7 @@ class _NotebookHomeState extends State<NotebookHome> {
             color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: 4),
-          Text('${_statusText(status)} · ${mastery.toStringAsFixed(1)}%', style: TextStyle(fontSize: 11, color: _statusColor(status))),
+          Text('${_statusText(status)} 路 ${mastery.toStringAsFixed(1)}%', style: TextStyle(fontSize: 11, color: _statusColor(status))),
         ],
       ),
     );
@@ -1787,13 +1856,13 @@ class _NotebookHomeState extends State<NotebookHome> {
   Widget _buildLearningView() {
     if (_learningContent == null || _learningContent!.isEmpty) {
       return Center(
-        child: Text('请在右侧技能树点击“学习”', style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        child: Text('璇峰湪鍙充晶鎶€鑳芥爲鐐瑰嚮鈥滃涔犫€?, style: TextStyle(color: Colors.white.withOpacity(0.6))),
       );
     }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
-        Text(_learningNodeName ?? '学习内容', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+        Text(_learningNodeName ?? '瀛︿範鍐呭', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(14),
@@ -1811,20 +1880,20 @@ class _NotebookHomeState extends State<NotebookHome> {
   Widget _buildQuizView() {
     if (_quizQuestions.isEmpty) {
       return Center(
-        child: Text('请在右侧技能树点击“出题”', style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        child: Text('璇峰湪鍙充晶鎶€鑳芥爲鐐瑰嚮鈥滃嚭棰樷€?, style: TextStyle(color: Colors.white.withOpacity(0.6))),
       );
     }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
-        Text('测验：${_quizNodeName ?? ''}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        Text('娴嬮獙锛?{_quizNodeName ?? ''}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         const SizedBox(height: 10),
         ..._quizQuestions.asMap().entries.map((entry) {
           final index = entry.key;
           final question = entry.value;
           final qid = _stringOf(question['id'], fallback: 'q$index');
           final qType = _stringOf(question['type'], fallback: 'short_answer');
-          final title = _stringOf(question['question'], fallback: '未提供题干');
+          final title = _stringOf(question['question'], fallback: '鏈彁渚涢骞?);
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
@@ -1852,7 +1921,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                     ),
                   )
                 else if (qType == 'true_false')
-                  ...['对', '错'].map(
+                  ...['瀵?, '閿?].map(
                     (option) => RadioListTile<String>(
                       dense: true,
                       value: option,
@@ -1869,7 +1938,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                     onChanged: (value) => _quizAnswers[qid] = value.trim(),
                     maxLines: 3,
                     decoration: InputDecoration(
-                      hintText: '输入你的答案',
+                      hintText: '杈撳叆浣犵殑绛旀',
                       filled: true,
                       fillColor: Colors.white.withOpacity(0.04),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -1890,7 +1959,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                   )
                 : const Icon(Icons.check),
-            label: const Text('提交测验'),
+            label: const Text('鎻愪氦娴嬮獙'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
@@ -1911,12 +1980,12 @@ class _NotebookHomeState extends State<NotebookHome> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '得分：${_doubleOf((_quizResult!['grading_result'] as Map?)?['score']).toStringAsFixed(1)}%',
+                  '寰楀垎锛?{_doubleOf((_quizResult!['grading_result'] as Map?)?['score']).toStringAsFixed(1)}%',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '状态：${_statusText(_stringOf(_quizResult!['new_status']))} · 掌握度 ${_doubleOf(_quizResult!['new_mastery']).toStringAsFixed(1)}%',
+                  '鐘舵€侊細${_statusText(_stringOf(_quizResult!['new_status']))} 路 鎺屾彙搴?${_doubleOf(_quizResult!['new_mastery']).toStringAsFixed(1)}%',
                   style: const TextStyle(color: Colors.white70),
                 ),
               ],
@@ -1927,7 +1996,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 空聊天状态
+  // 绌鸿亰澶╃姸鎬?
   Widget _buildEmptyChatState() {
     return Center(
       child: Column(
@@ -1943,7 +2012,7 @@ class _NotebookHomeState extends State<NotebookHome> {
           ),
           const SizedBox(height: 24),
           const Text(
-            "添加来源即可开始使用",
+            "娣诲姞鏉ユ簮鍗冲彲寮€濮嬩娇鐢?,
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 16),
@@ -1956,14 +2025,14 @@ class _NotebookHomeState extends State<NotebookHome> {
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             ),
-            child: const Text("上传来源"),
+            child: const Text("涓婁紶鏉ユ簮"),
           ),
         ],
       ),
     );
   }
 
-  // 聊天气泡
+  // 鑱婂ぉ姘旀场
   Widget _buildChatBubble(ChatMessage message) {
     bool isUser = message.isUser;
     return Align(
@@ -1991,7 +2060,7 @@ class _NotebookHomeState extends State<NotebookHome> {
             if (message.references.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                '来源: ${message.references.join(', ')}',
+                '鏉ユ簮: ${message.references.join(', ')}',
                 style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.5)),
               ),
             ],
@@ -2023,14 +2092,14 @@ class _NotebookHomeState extends State<NotebookHome> {
               ),
             ),
             const SizedBox(width: 12),
-            Text("正在思考...", style: TextStyle(color: Colors.white.withOpacity(0.7))),
+            Text("姝ｅ湪鎬濊€?..", style: TextStyle(color: Colors.white.withOpacity(0.7))),
           ],
         ),
       ),
     );
   }
 
-  // 底部输入框
+  // 搴曢儴杈撳叆妗?
   Widget _buildChatInputArea() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2049,14 +2118,14 @@ class _NotebookHomeState extends State<NotebookHome> {
                     controller: _chatController,
                     onSubmitted: (_) => _sendMessage(),
                     decoration: InputDecoration(
-                      hintText: "上传来源即可开始使用",
+                      hintText: "涓婁紶鏉ユ簮鍗冲彲寮€濮嬩娇鐢?,
                       hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 14),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                   ),
                 ),
-                Text("${_documents.length} 个来源", style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
+                Text("${_documents.length} 涓潵婧?, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
                 const SizedBox(width: 12),
                 InkWell(
                   onTap: _sendMessage,
@@ -2072,7 +2141,7 @@ class _NotebookHomeState extends State<NotebookHome> {
           ),
           const SizedBox(height: 8),
           Text(
-            "NotebookLM 提供的内容未必准确，因此请仔细核查回答内容。",
+            "NotebookLM 鎻愪緵鐨勫唴瀹规湭蹇呭噯纭紝鍥犳璇蜂粩缁嗘牳鏌ュ洖绛斿唴瀹广€?,
             style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10),
           ),
         ],
@@ -2080,7 +2149,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 右侧面板
+  // 鍙充晶闈㈡澘
   Widget _buildRightPanel() {
     return Container(
       decoration: BoxDecoration(
@@ -2110,15 +2179,15 @@ class _NotebookHomeState extends State<NotebookHome> {
               mainAxisSpacing: 12,
               childAspectRatio: 1.2,
               children: [
-                _buildStudioTool(Icons.graphic_eq, "音频概览", () => _handleStudioAction("audio_overview")),
-                _buildStudioTool(Icons.play_circle_outline, "视频概览", () => _handleStudioAction("video_overview")),
-                _buildStudioTool(Icons.account_tree_outlined, "思维导图", () => _handleStudioAction("mindmap")),
-                _buildStudioTool(Icons.description_outlined, "报告", () => _handleStudioAction("report")),
-                _buildStudioTool(Icons.style_outlined, "闪卡", () => _handleStudioAction("flashcards")),
-                _buildStudioTool(Icons.help_outline, "测验", () => _handleStudioAction("quiz")),
-                _buildStudioTool(Icons.insert_chart_outlined, "信息图", () => _handleStudioAction("infographic")),
-                _buildStudioTool(Icons.slideshow, "演示文稿", () => _handleStudioAction("presentation")),
-                _buildStudioTool(Icons.table_chart_outlined, "数据表格", () => _handleStudioAction("table")),
+                _buildStudioTool(Icons.graphic_eq, "闊抽姒傝", () => _handleStudioAction("audio_overview")),
+                _buildStudioTool(Icons.play_circle_outline, "瑙嗛姒傝", () => _handleStudioAction("video_overview")),
+                _buildStudioTool(Icons.account_tree_outlined, "鎬濈淮瀵煎浘", () => _handleStudioAction("mindmap")),
+                _buildStudioTool(Icons.description_outlined, "鎶ュ憡", () => _handleStudioAction("report")),
+                _buildStudioTool(Icons.style_outlined, "闂崱", () => _handleStudioAction("flashcards")),
+                _buildStudioTool(Icons.help_outline, "娴嬮獙", () => _handleStudioAction("quiz")),
+                _buildStudioTool(Icons.insert_chart_outlined, "淇℃伅鍥?, () => _handleStudioAction("infographic")),
+                _buildStudioTool(Icons.slideshow, "婕旂ず鏂囩", () => _handleStudioAction("presentation")),
+                _buildStudioTool(Icons.table_chart_outlined, "鏁版嵁琛ㄦ牸", () => _handleStudioAction("table")),
               ],
             ),
           ),
@@ -2138,7 +2207,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "正在生成 $_activeStudioTool...",
+                      "姝ｅ湪鐢熸垚 $_activeStudioTool...",
                       style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
                     ),
                   ),
@@ -2149,7 +2218,7 @@ class _NotebookHomeState extends State<NotebookHome> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               children: [
-                _panelTitle('问答设置'),
+                _panelTitle('闂瓟璁剧疆'),
                 DropdownButtonFormField<String>(
                   value: _qaMode,
                   dropdownColor: const Color(0xFF282A2D),
@@ -2175,12 +2244,12 @@ class _NotebookHomeState extends State<NotebookHome> {
                   contentPadding: EdgeInsets.zero,
                   value: _includeReferences,
                   onChanged: (value) => setState(() => _includeReferences = value ?? false),
-                  title: const Text('包含参考文献', style: TextStyle(fontSize: 12)),
+                  title: const Text('鍖呭惈鍙傝€冩枃鐚?, style: TextStyle(fontSize: 12)),
                 ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Text('每次测验题数', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                    const Text('姣忔娴嬮獙棰樻暟', style: TextStyle(fontSize: 12, color: Colors.white70)),
                     const Spacer(),
                     DropdownButton<int>(
                       value: _quizQuestionCount,
@@ -2194,11 +2263,11 @@ class _NotebookHomeState extends State<NotebookHome> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                _panelTitle('技能树'),
+                _panelTitle('鎶€鑳芥爲'),
                 if (_isLoadingSkillNodes)
                   Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
                 else if (_skillNodes.isEmpty)
-                  Text('暂无技能点', style: TextStyle(color: Colors.white.withOpacity(0.5)))
+                  Text('鏆傛棤鎶€鑳界偣', style: TextStyle(color: Colors.white.withOpacity(0.5)))
                 else
                   ..._skillNodes.map(_buildSkillNodeCard),
               ],
@@ -2230,7 +2299,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_stringOf(node['name'], fallback: '未命名技能点'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(_stringOf(node['name'], fallback: '鏈懡鍚嶆妧鑳界偣'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
           Text(_statusText(status), style: TextStyle(fontSize: 11, color: _statusColor(status))),
           const SizedBox(height: 6),
@@ -2241,7 +2310,7 @@ class _NotebookHomeState extends State<NotebookHome> {
             backgroundColor: Colors.white10,
           ),
           const SizedBox(height: 6),
-          Text('掌握度 ${mastery.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11, color: Colors.white70)),
+          Text('鎺屾彙搴?${mastery.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11, color: Colors.white70)),
           const SizedBox(height: 6),
           Row(
             children: [
@@ -2249,7 +2318,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => _startLearning(node),
-                    child: const Text('学习', style: TextStyle(fontSize: 11)),
+                    child: const Text('瀛︿範', style: TextStyle(fontSize: 11)),
                   ),
                 ),
               if (status == 'available' || status == 'learning') const SizedBox(width: 6),
@@ -2257,7 +2326,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => _completeLearning(node),
-                    child: const Text('完成', style: TextStyle(fontSize: 11)),
+                    child: const Text('瀹屾垚', style: TextStyle(fontSize: 11)),
                   ),
                 ),
             ],
@@ -2278,7 +2347,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                     )
-                  : const Text('出题', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  : const Text('鍑洪', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
             ),
           ),
         ],
@@ -2381,7 +2450,7 @@ class _KnowledgeGraphPainter extends CustomPainter {
           ),
         ),
         maxLines: 2,
-        ellipsis: '…',
+        ellipsis: '鈥?,
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: 130);
 

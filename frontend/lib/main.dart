@@ -7,6 +7,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+// 全局的主题控制器，默认使用系统主题
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.system);
+
 void main() {
   runApp(const NotebookLMApp());
 }
@@ -16,20 +19,34 @@ class NotebookLMApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'NotebookLM Clone',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF131314), // 涓昏儗鏅壊
-        primaryColor: const Color(0xFFA8C7FA), // Google 钃濊壊绯?
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFA8C7FA),
-          surface: Color(0xFF1E1F20), // 闈㈡澘鑳屾櫙鑹?
-        ),
-        fontFamily: 'Microsoft YaHei', // Windows 榛樿鍙嬪ソ瀛椾綋
-      ),
-      home: const NotebookHome(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (_, ThemeMode currentMode, __) {
+        return MaterialApp(
+          title: 'NotebookLM Clone',
+          debugShowCheckedModeBanner: false,
+          themeMode: currentMode,
+          // 纯正的 Material 3 亮色主题
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF0A57D0), // Google Blue
+              brightness: Brightness.light,
+            ),
+            useMaterial3: true,
+            fontFamily: 'Microsoft YaHei',
+          ),
+          // 纯正的 Material 3 暗色主题
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFFA8C7FA), // Google Blue Light
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+            fontFamily: 'Microsoft YaHei',
+          ),
+          home: const NotebookHome(),
+        );
+      },
     );
   }
 }
@@ -50,7 +67,6 @@ class ChatMessage {
   ChatMessage({required this.text, required this.isUser, this.references = const []});
 }
 
-// 鏂板绗旇鏈暟鎹ā鍨?
 class Notebook {
   final String id;
   String title;
@@ -58,15 +74,15 @@ class Notebook {
 }
 
 class _NotebookHomeState extends State<NotebookHome> {
-  // 鏂板 Scaffold 鍏ㄥ眬 Key锛岀敤浜庢帶鍒舵娊灞夊脊鍑?
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _chatController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   
-  // 鏂板寮傛璇锋眰鐨勭姸鎬侀攣
-  bool _isThinking = false; // 鎺у埗鑱婂ぉ绛夊緟鐘舵€?
-  bool _isUploading = false; // 鎺у埗鏂囦欢涓婁紶鐘舵€?  bool _isGeneratingStudio = false; // 鎺у埗 Studio 闈㈡澘鐢熸垚鐘舵€?  String? _activeStudioTool; // 璁板綍褰撳墠姝ｅ湪鐢熸垚鍝釜宸ュ叿
+  bool _isThinking = false;
+  bool _isUploading = false;
+  bool _isGeneratingStudio = false;
+  String? _activeStudioTool;
   CenterViewMode _centerMode = CenterViewMode.chat;
   String _qaMode = 'mix';
   bool _includeReferences = false;
@@ -106,23 +122,18 @@ class _NotebookHomeState extends State<NotebookHome> {
   Map<String, dynamic> _quizAnswers = {};
   Map<String, dynamic>? _quizResult;
 
-  // 鏂板绗旇鏈垪琛ㄧ浉鍏崇姸鎬?
   List<Notebook> _notebooks = [];
   Notebook? _currentNotebook;
-  bool _isLoadingNotebooks = false; // 鎺у埗鍒楄〃鎷夊彇绛夊緟鐘舵€?
-  bool _isCreatingNotebook = false; // 鎺у埗鏂板缓绗旇鏈瓑寰呯姸鎬?  final String _apiBaseUrl = _resolveApiBaseUrl();
+  bool _isLoadingNotebooks = false;
+  bool _isCreatingNotebook = false;
+
+  final String _apiBaseUrl = _resolveApiBaseUrl();
 
   static String _resolveApiBaseUrl() {
     const defined = String.fromEnvironment('API_BASE_URL');
-    if (defined.isNotEmpty) {
-      return defined;
-    }
-    if (kIsWeb) {
-      return 'http://localhost:8000';
-    }
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8000';
-    }
+    if (defined.isNotEmpty) return defined;
+    if (kIsWeb) return 'http://localhost:8000';
+    if (defaultTargetPlatform == TargetPlatform.android) return 'http://10.0.2.2:8000';
     return 'http://127.0.0.1:8000';
   }
 
@@ -151,13 +162,9 @@ class _NotebookHomeState extends State<NotebookHome> {
     try {
       final result = await _apiGet('/api/documents/pipeline-status');
       if (!mounted) return;
-      setState(() {
-        _pipelineStatus = result;
-      });
+      setState(() => _pipelineStatus = result);
     } catch (error) {
-      if (!silent) {
-        await _showError(error);
-      }
+      if (!silent) await _showError(error);
     }
   }
 
@@ -182,8 +189,9 @@ class _NotebookHomeState extends State<NotebookHome> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(error.toString()),
-        backgroundColor: Colors.redAccent,
+        content: Text(error.toString(), style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
+        backgroundColor: Theme.of(context).colorScheme.errorContainer,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -196,68 +204,44 @@ class _NotebookHomeState extends State<NotebookHome> {
 
   String _statusText(String status) {
     switch (status.toLowerCase()) {
-      case 'processed':
-        return '宸插鐞?;
-      case 'processing':
-        return '澶勭悊涓?;
-      case 'pending':
-        return '绛夊緟涓?;
-      case 'failed':
-        return '澶辫触';
-      case 'preprocessed':
-        return '棰勫鐞?;
-      case 'completed':
-        return '宸插畬鎴?;
-      case 'learning':
-        return '瀛︿範涓?;
-      case 'available':
-        return '鍙涔?;
-      case 'locked':
-        return '鏈В閿?;
-      default:
-        return status;
+      case 'processed': return '已处理';
+      case 'processing': return '处理中';
+      case 'pending': return '等待中';
+      case 'failed': return '失败';
+      case 'preprocessed': return '预处理';
+      case 'completed': return '已完成';
+      case 'learning': return '学习中';
+      case 'available': return '可学习';
+      case 'locked': return '未解锁';
+      default: return status;
     }
   }
 
-  Color _statusColor(String status) {
+  Color _statusColor(String status, ColorScheme colorScheme) {
     switch (status.toLowerCase()) {
       case 'processed':
-      case 'completed':
-        return Colors.greenAccent;
+      case 'completed': return Colors.green; // 语义颜色
       case 'processing':
-      case 'learning':
-        return Colors.orangeAccent;
-      case 'failed':
-        return Colors.redAccent;
-      case 'available':
-        return Colors.lightBlueAccent;
-      case 'locked':
-        return Colors.grey;
-      default:
-        return Colors.white60;
+      case 'learning': return Colors.orange;
+      case 'failed': return colorScheme.error;
+      case 'available': return colorScheme.primary;
+      case 'locked': return colorScheme.outline;
+      default: return colorScheme.onSurfaceVariant;
     }
   }
 
   IconData _statusIcon(String status) {
     switch (status.toLowerCase()) {
       case 'processed':
-      case 'completed':
-        return Icons.check_circle;
+      case 'completed': return Icons.check_circle;
       case 'processing':
-      case 'learning':
-        return Icons.autorenew;
-      case 'failed':
-        return Icons.error;
-      case 'pending':
-        return Icons.schedule;
-      case 'preprocessed':
-        return Icons.tune;
-      case 'available':
-        return Icons.play_circle;
-      case 'locked':
-        return Icons.lock;
-      default:
-        return Icons.info;
+      case 'learning': return Icons.autorenew;
+      case 'failed': return Icons.error;
+      case 'pending': return Icons.schedule;
+      case 'preprocessed': return Icons.tune;
+      case 'available': return Icons.play_circle;
+      case 'locked': return Icons.lock;
+      default: return Icons.info_outline;
     }
   }
 
@@ -265,12 +249,10 @@ class _NotebookHomeState extends State<NotebookHome> {
     final uri = Uri.parse('$_apiBaseUrl$path').replace(queryParameters: query);
     final response = await http.get(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('GET $path 澶辫触: ${response.statusCode} ${response.body}');
+      throw Exception('GET $path 失败: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
+    if (decoded is Map<String, dynamic>) return decoded;
     return {'data': decoded};
   }
 
@@ -278,7 +260,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     final uri = Uri.parse('$_apiBaseUrl$path').replace(queryParameters: query);
     final response = await http.get(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('GET $path 澶辫触: ${response.statusCode} ${response.body}');
+      throw Exception('GET $path 失败: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
     if (decoded is List) return decoded;
@@ -296,12 +278,10 @@ class _NotebookHomeState extends State<NotebookHome> {
       body: body == null ? null : jsonEncode(body),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('POST $path 澶辫触: ${response.statusCode} ${response.body}');
+      throw Exception('POST $path 失败: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
+    if (decoded is Map<String, dynamic>) return decoded;
     return {'data': decoded};
   }
 
@@ -309,37 +289,27 @@ class _NotebookHomeState extends State<NotebookHome> {
     final uri = Uri.parse('$_apiBaseUrl$path');
     final response = await http.delete(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('DELETE $path 澶辫触: ${response.statusCode} ${response.body}');
+      throw Exception('DELETE $path 失败: ${response.statusCode} ${response.body}');
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
+    if (decoded is Map<String, dynamic>) return decoded;
     return {'data': decoded};
   }
 
-  Future<Map<String, dynamic>> _uploadSingleFile(
-    String filename,
-    List<int> bytes,
-    String? mimeType,
-  ) async {
+  Future<Map<String, dynamic>> _uploadSingleFile(String filename, List<int> bytes, String? mimeType) async {
     final uri = Uri.parse('$_apiBaseUrl/api/documents/upload');
     final request = http.MultipartRequest('POST', uri);
-    request.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: filename),
-    );
+    request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
     final response = await request.send();
     final body = await response.stream.bytesToString();
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('涓婁紶 $filename 澶辫触: ${response.statusCode} $body');
+      throw Exception('上传 $filename 失败: ${response.statusCode} $body');
     }
     return jsonDecode(body) as Map<String, dynamic>;
   }
 
   Future<void> _fetchDocuments({bool resetPage = false}) async {
-    if (resetPage) {
-      _documentsPage = 1;
-    }
+    if (resetPage) _documentsPage = 1;
     setState(() {
       _isLoadingDocuments = true;
       _isLoadingNotebooks = true;
@@ -374,10 +344,7 @@ class _NotebookHomeState extends State<NotebookHome> {
         _notebooks = notebooks;
         if (_selectedDocument != null) {
           final selectedId = _stringOf(_selectedDocument!['id']);
-          final refreshed = _documents.firstWhere(
-            (d) => _stringOf(d['id']) == selectedId,
-            orElse: () => {},
-          );
+          final refreshed = _documents.firstWhere((d) => _stringOf(d['id']) == selectedId, orElse: () => {});
           _selectedDocument = refreshed.isEmpty ? null : refreshed;
         }
         if (_selectedDocument == null && _documents.isNotEmpty) {
@@ -403,7 +370,6 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 鏂板缓绗旇鏈?(棰勭暀鍚庣鎺ュ彛)
   Future<void> _createNewNotebook() async {
     if (_isCreatingNotebook) return;
     setState(() => _isCreatingNotebook = true);
@@ -411,7 +377,7 @@ class _NotebookHomeState extends State<NotebookHome> {
     if (!mounted) return;
     setState(() => _isCreatingNotebook = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('鍚庣鏆傛棤 Notebook 瀹炰綋锛岃閫氳繃鈥滄坊鍔犳潵婧愨€濆垱寤哄唴瀹?)),
+      const SnackBar(content: Text('后端暂无 Notebook 实体，请通过“添加来源”创建内容')),
     );
   }
 
@@ -471,9 +437,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       await _fetchDocuments();
       await _refreshSkillNodes();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('鏂囨。宸插垹闄?)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('文档已删除')));
     } catch (error) {
       await _showError(error);
     }
@@ -503,8 +467,8 @@ class _NotebookHomeState extends State<NotebookHome> {
       final result = await _apiGet('/api/skill-tree/nodes/$nodeId/learning-content');
       if (!mounted) return;
       setState(() {
-        _learningNodeName = _stringOf(node['name'], fallback: '瀛︿範鍐呭');
-        _learningContent = _stringOf(result['content'], fallback: '鏈繑鍥炲涔犲唴瀹?);
+        _learningNodeName = _stringOf(node['name'], fallback: '学习内容');
+        _learningContent = _stringOf(result['content'], fallback: '未返回学习内容');
         _centerMode = CenterViewMode.learning;
       });
       await _refreshSkillNodes();
@@ -520,9 +484,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       await _apiPost('/api/skill-tree/nodes/$nodeId/complete');
       await _refreshSkillNodes();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('宸叉爣璁颁负瀹屾垚')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已标记为完成')));
     } catch (error) {
       await _showError(error);
     }
@@ -536,10 +498,7 @@ class _NotebookHomeState extends State<NotebookHome> {
       _quizNodeId = nodeId;
     });
     try {
-      final result = await _apiGet(
-        '/api/quiz/generate/$nodeId',
-        query: {'num_questions': '$_quizQuestionCount'},
-      );
+      final result = await _apiGet('/api/quiz/generate/$nodeId', query: {'num_questions': '$_quizQuestionCount'});
       final questions = (result['questions'] as List? ?? const [])
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
@@ -564,9 +523,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Future<void> _submitQuiz() async {
     if (_quizNodeId == null || _quizQuestions.isEmpty) return;
     if (_quizAnswers.length < _quizQuestions.length) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('璇峰厛鍥炵瓟鎵€鏈夐鐩?)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先回答所有题目')));
       return;
     }
     setState(() => _isSubmittingQuiz = true);
@@ -588,31 +545,18 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 鍒囨崲閫変腑绗旇鏈?(棰勭暀鍚庣鎺ュ彛)
   Future<void> _switchNotebook(Notebook nb) async {
-    final doc = _documents.firstWhere(
-      (d) => _stringOf(d['id']) == nb.id,
-      orElse: () => {},
-    );
-    if (doc.isNotEmpty) {
-      await _loadDocumentDetail(doc);
-    }
+    final doc = _documents.firstWhere((d) => _stringOf(d['id']) == nb.id, orElse: () => {});
+    if (doc.isNotEmpty) await _loadDocumentDetail(doc);
     if (!mounted) return;
     _scaffoldKey.currentState?.closeDrawer();
   }
 
-  // 鍞よ捣鏈湴鏂囦欢涓婁紶绐楀彛
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        withData: true,
-      );
-
+      FilePickerResult? result = await FilePicker.platform.pickFiles(allowMultiple: true, withData: true);
       if (result != null) {
-        setState(() {
-          _isUploading = true;
-        });
+        setState(() => _isUploading = true);
         final uploadedNames = <String>[];
         var failedCount = 0;
         for (final file in result.files) {
@@ -634,57 +578,43 @@ class _NotebookHomeState extends State<NotebookHome> {
         setState(() {
           _isUploading = false;
           if (uploadedNames.isNotEmpty) {
-            _messages.add(ChatMessage(
-              text: "鉁?宸叉垚鍔熶笂浼犲苟瑙ｆ瀽: ${uploadedNames.join(', ')}",
-              isUser: true,
-            ));
+            _messages.add(ChatMessage(text: "✅ 已成功上传并解析: ${uploadedNames.join(', ')}", isUser: true));
           }
           if (failedCount > 0) {
-            _messages.add(ChatMessage(
-              text: "鈿狅笍 $failedCount 涓枃浠朵笂浼犲け璐ワ紝璇锋鏌ュ悗绔垨 LightRAG 鐘舵€併€?,
-              isUser: false,
-            ));
+            _messages.add(ChatMessage(text: "⚠️ $failedCount 个文件上传失败，请检查后端或 LightRAG 状态。", isUser: false));
           }
         });
         _scrollToBottom();
         if (uploadedNames.isNotEmpty) {
-          _simulateBackendResponse("鏂囦欢宸叉帴鏀跺苟鍏ュ簱銆備綘鐜板湪鍙互鐩存帴鎻愰棶鏂囨。鍐呭銆?);
+          _simulateBackendResponse("文件已接收并入库。你现在可以直接提问文档内容。");
         }
       }
     } catch (e) {
-      setState(() {
-        _isUploading = false;
-      });
-      debugPrint("鏂囦欢閫夋嫨鍑洪敊: $e");
+      setState(() => _isUploading = false);
+      debugPrint("文件选择出错: $e");
     }
   }
 
-  // 鍙戦€佹秷鎭苟璋冪敤澶фā鍨?API (棰勭暀鎺ュ彛)
-  // 鍙戦€佹秷鎭苟璋冪敤澶фā鍨?API (棰勭暀鎺ュ彛)
   void _sendMessage() {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
-
     setState(() {
       _messages.add(ChatMessage(text: text, isUser: true));
       _chatController.clear();
-      _isThinking = true; // 寮€鍚璇濈瓑寰呮皵娉?      _centerMode = CenterViewMode.chat;
+      _isThinking = true;
+      _centerMode = CenterViewMode.chat;
     });
     _scrollToBottom();
-
     _queryAssistant(text);
   }
 
   Future<void> _queryAssistant(String text) async {
     try {
-      final result = await _apiGet(
-        '/api/learning/query',
-        query: {
-          'query': text,
-          'mode': _qaMode,
-          'include_references': _includeReferences ? 'true' : 'false',
-        },
-      );
+      final result = await _apiGet('/api/learning/query', query: {
+        'query': text,
+        'mode': _qaMode,
+        'include_references': _includeReferences ? 'true' : 'false',
+      });
       final reply = (result['response'] ?? '').toString();
       final refs = (result['references'] as List? ?? const [])
           .whereType<Map>()
@@ -693,31 +623,21 @@ class _NotebookHomeState extends State<NotebookHome> {
       if (!mounted) return;
       setState(() {
         _isThinking = false;
-        _messages.add(ChatMessage(
-          text: reply.isEmpty ? '鍚庣宸插搷搴旓紝浣嗘湭杩斿洖鍐呭銆? : reply,
-          isUser: false,
-          references: refs,
-        ));
+        _messages.add(ChatMessage(text: reply.isEmpty ? '后端已响应，但未返回内容。' : reply, isUser: false, references: refs));
       });
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isThinking = false;
-        _messages.add(ChatMessage(
-          text: "璇锋眰澶辫触锛?e",
-          isUser: false,
-        ));
+        _messages.add(ChatMessage(text: "请求失败：$e", isUser: false));
       });
       _scrollToBottom();
     }
   }
 
-  // 妯℃嫙鍚庣寤惰繜鍥炲 (寮傛澶勭悊)
   Future<void> _simulateBackendResponse(String responseText) async {
-    // 妯℃嫙绛夊緟妯″瀷鐢熸垚鏂囨湰鐨勮€楁椂
     await Future.delayed(const Duration(milliseconds: 1500));
-    
     if (mounted) {
       setState(() {
         _isThinking = false;
@@ -727,42 +647,30 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
-  // 澶勭悊鍙充晶 Studio 鍔熻兘鎸夐敭鐨勫紓姝ヨ姹?
   String _resolveGraphLabel() {
     if (_selectedDocument != null) {
       final path = _stringOf(_selectedDocument!['file_path']);
       final shortName = _shortFileName(path);
-      if (shortName.isNotEmpty) {
-        return shortName.replaceAll(RegExp(r'\.[^.]+$'), '');
-      }
+      if (shortName.isNotEmpty) return shortName.replaceAll(RegExp(r'\.[^.]+$'), '');
     }
     for (var index = _messages.length - 1; index >= 0; index -= 1) {
       final msg = _messages[index];
-      if (msg.isUser && msg.text.trim().isNotEmpty) {
-        return msg.text.trim();
-      }
+      if (msg.isUser && msg.text.trim().isNotEmpty) return msg.text.trim();
     }
     return 'knowledge';
   }
 
   String _studioActionLabel(String action) {
     const mapping = {
-      'audio_overview': '闊抽姒傝',
-      'video_overview': '瑙嗛姒傝',
-      'mindmap': '鎬濈淮瀵煎浘',
-      'report': '鎶ュ憡',
-      'flashcards': '闂崱',
-      'quiz': '娴嬮獙',
-      'infographic': '淇℃伅鍥?,
-      'presentation': '婕旂ず鏂囩',
-      'table': '鏁版嵁琛ㄦ牸',
+      'audio_overview': '音频概览', 'video_overview': '视频概览', 'mindmap': '思维导图',
+      'report': '报告', 'flashcards': '闪卡', 'quiz': '测验',
+      'infographic': '信息图', 'presentation': '演示文稿', 'table': '数据表格',
     };
     return mapping[action] ?? action;
   }
 
-    Future<void> _handleStudioAction(String action) async {
+  Future<void> _handleStudioAction(String action) async {
     if (_isGeneratingStudio) return;
-
     setState(() {
       _isGeneratingStudio = true;
       _activeStudioTool = _studioActionLabel(action);
@@ -771,42 +679,29 @@ class _NotebookHomeState extends State<NotebookHome> {
     try {
       if (action == 'mindmap' || action == 'infographic') {
         final label = _resolveGraphLabel();
-        final graphResult = await _apiGet(
-          '/api/learning/graph',
-          query: {
-            'label': label,
-            'max_depth': '3',
-            'max_nodes': action == 'infographic' ? '80' : '120',
-          },
-        );
+        final graphResult = await _apiGet('/api/learning/graph', query: {
+          'label': label, 'max_depth': '3', 'max_nodes': action == 'infographic' ? '80' : '120',
+        });
         if (!mounted) return;
         setState(() {
-          _isGeneratingStudio = false;
-          _activeStudioTool = null;
-          _studioGraphPayload = graphResult;
-          _studioGraphLabel = label;
+          _isGeneratingStudio = false; _activeStudioTool = null;
+          _studioGraphPayload = graphResult; _studioGraphLabel = label;
           _centerMode = CenterViewMode.studioGraph;
         });
         return;
       }
 
       final topic = _resolveGraphLabel();
-      final result = await _apiPost(
-        '/api/learning/studio/generate',
-        body: {
-          'action': action,
-          'topic': topic,
-          'mode': _qaMode,
-        },
-      );
+      final result = await _apiPost('/api/learning/studio/generate', body: {
+        'action': action, 'topic': topic, 'mode': _qaMode,
+      });
 
       final reply = (result['content'] ?? '').toString();
       final note = (result['capability_note'] ?? '').toString();
 
       if (!mounted) return;
       setState(() {
-        _isGeneratingStudio = false;
-        _activeStudioTool = null;
+        _isGeneratingStudio = false; _activeStudioTool = null;
         _studioTextTitle = (result['title'] ?? _studioActionLabel(action)).toString();
         _studioTextType = (result['delivery_type'] ?? '').toString();
         _studioTextTopic = (result['topic'] ?? topic).toString();
@@ -816,19 +711,18 @@ class _NotebookHomeState extends State<NotebookHome> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _isGeneratingStudio = false;
-        _activeStudioTool = null;
+        _isGeneratingStudio = false; _activeStudioTool = null;
       });
       await _showError(e);
     }
   }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+          duration: const Duration(milliseconds: 300), curve: Curves.easeOut,
         );
       }
     });
@@ -836,26 +730,26 @@ class _NotebookHomeState extends State<NotebookHome> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    
     return Scaffold(
       key: _scaffoldKey,
-      drawer: _buildDrawer(), // 鎺ュ叆鎶藉眽浣滀负绗旇鏈垪琛?
+      backgroundColor: colorScheme.surface,
+      drawer: _buildDrawer(context), 
       body: Column(
         children: [
-          _buildTopAppBar(),
+          _buildTopAppBar(context),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(left: 12.0, right: 12.0, bottom: 12.0),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 宸︿晶 - 鏉ユ簮闈㈡澘
-                  Expanded(flex: 2, child: _buildLeftPanel()),
+                  Expanded(flex: 2, child: _buildLeftPanel(context)),
                   const SizedBox(width: 12),
-                  // 涓棿 - 瀵硅瘽闈㈡澘
-                  Expanded(flex: 5, child: _buildCenterPanel()),
+                  Expanded(flex: 5, child: _buildCenterPanel(context)),
                   const SizedBox(width: 12),
-                  // 鍙充晶 - Studio 闈㈡澘
-                  Expanded(flex: 3, child: _buildRightPanel()),
+                  Expanded(flex: 3, child: _buildRightPanel(context)),
                 ],
               ),
             ),
@@ -865,98 +759,86 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 椤堕儴瀵艰埅鏍?
-  Widget _buildTopAppBar() {
+  Widget _buildTopAppBar(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       height: 60,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white70),
+            icon: Icon(Icons.menu, color: colorScheme.onSurfaceVariant),
             onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
           const SizedBox(width: 8),
-          const CircleAvatar(
+          CircleAvatar(
             radius: 14,
-            backgroundColor: Colors.white24,
-            child: Icon(Icons.auto_awesome_mosaic, size: 16, color: Colors.white),
+            backgroundColor: colorScheme.secondaryContainer,
+            child: Icon(Icons.view_cozy_outlined, size: 16, color: colorScheme.onSecondaryContainer),
           ),
           const SizedBox(width: 12),
           Text(
-            _isLoadingNotebooks ? "鍔犺浇涓?.." : (_currentNotebook?.title ?? "Untitled notebook"),
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+            _isLoadingNotebooks ? "加载中..." : (_currentNotebook?.title ?? "Untitled notebook"),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: colorScheme.onSurface),
           ),
           const Spacer(),
-          _buildTopButton(
-            Icons.add, 
-            _isCreatingNotebook ? "鍒涘缓涓?.." : "鍒涘缓绗旇鏈?, 
-            onTap: _createNewNotebook,
-            isLoading: _isCreatingNotebook,
-          ),
+          _buildTopButton(context, Icons.add, _isCreatingNotebook ? "创建中..." : "创建笔记本", onTap: _createNewNotebook, isLoading: _isCreatingNotebook),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.analytics_outlined, "鏂囨。", onTap: () => setState(() => _centerMode = CenterViewMode.document)),
+          _buildTopButton(context, Icons.description_outlined, "文档", onTap: () => setState(() => _centerMode = CenterViewMode.document)),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.school_outlined, "瀛︿範", onTap: () => setState(() => _centerMode = CenterViewMode.learning)),
+          _buildTopButton(context, Icons.school_outlined, "学习", onTap: () => setState(() => _centerMode = CenterViewMode.learning)),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.quiz_outlined, "娴嬮獙", onTap: () => setState(() => _centerMode = CenterViewMode.quiz)),
+          _buildTopButton(context, Icons.quiz_outlined, "测验", onTap: () => setState(() => _centerMode = CenterViewMode.quiz)),
           const SizedBox(width: 8),
-          _buildTopButton(Icons.account_tree_outlined, "鍥捐氨", onTap: () => setState(() => _centerMode = CenterViewMode.studioGraph)),
+          _buildTopButton(context, Icons.hub_outlined, "图谱", onTap: () => setState(() => _centerMode = CenterViewMode.studioGraph)),
           const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(4),
+          
+          IconButton(
+            icon: Icon(
+              isDark ? Icons.light_mode : Icons.dark_mode_outlined, 
+              color: colorScheme.onSurfaceVariant,
+              size: 20,
             ),
-            child: const Text("PRO", style: TextStyle(fontSize: 10, color: Colors.white70)),
+            onPressed: () {
+              themeNotifier.value = isDark ? ThemeMode.light : ThemeMode.dark;
+            },
+            tooltip: '切换主题',
           ),
+          
+          const SizedBox(width: 8),
+          Icon(Icons.grid_view_outlined, color: colorScheme.onSurfaceVariant),
           const SizedBox(width: 16),
-          const Icon(Icons.grid_view, color: Colors.white70),
-          const SizedBox(width: 16),
-          const CircleAvatar(
+          CircleAvatar(
             radius: 16,
-            backgroundColor: Colors.blueAccent,
-            child: Icon(Icons.person, size: 20, color: Colors.white),
+            backgroundColor: colorScheme.primary,
+            child: Icon(Icons.person_outline, size: 20, color: colorScheme.onPrimary),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTopButton(IconData icon, String label, {VoidCallback? onTap, bool isLoading = false}) {
-    return InkWell(
-      onTap: isLoading ? null : onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
+  Widget _buildTopButton(BuildContext context, IconData icon, String label, {VoidCallback? onTap, bool isLoading = false}) {
+    // 使用 Material 3 原生的 Tonal Button (最适合这种次级导航动作)
+    return FilledButton.tonalIcon(
+      onPressed: isLoading ? null : onTap,
+      icon: isLoading
+          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+      style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
-        ),
-        child: Row(
-          children: [
-            if (isLoading)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
-              )
-            else
-              Icon(icon, size: 16, color: Colors.white70),
-            const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 13, color: Colors.white)),
-          ],
-        ),
+        minimumSize: Size.zero,
       ),
     );
   }
 
-  // 绗旇鏈垪琛ㄤ晶杈规爮 (Drawer)
-  Widget _buildDrawer() {
+  Widget _buildDrawer(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Drawer(
-      backgroundColor: const Color(0xFF1E1F20),
+      backgroundColor: colorScheme.surfaceContainerLow,
       child: Column(
         children: [
           Container(
@@ -964,20 +846,16 @@ class _NotebookHomeState extends State<NotebookHome> {
             alignment: Alignment.bottomLeft,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+              border: Border(bottom: BorderSide(color: colorScheme.outlineVariant)),
             ),
-            child: const Text(
-              "鎴戠殑绗旇鏈?,
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            child: Text(
+              "我的笔记本",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface),
             ),
           ),
           Expanded(
             child: _isLoadingNotebooks
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  )
+                ? Center(child: CircularProgressIndicator(color: colorScheme.primary))
                 : ListView.builder(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: _notebooks.length,
@@ -988,19 +866,16 @@ class _NotebookHomeState extends State<NotebookHome> {
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          leading: Icon(
-                            Icons.book, 
-                            color: isSelected ? Theme.of(context).colorScheme.primary : Colors.white54
-                          ),
+                          leading: Icon(Icons.menu_book_rounded, color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant),
                           title: Text(
                             nb.title, 
                             style: TextStyle(
-                              color: isSelected ? Theme.of(context).colorScheme.primary : Colors.white70,
+                              color: isSelected ? colorScheme.primary : colorScheme.onSurface,
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                             ),
                           ),
                           selected: isSelected,
-                          selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                          selectedTileColor: colorScheme.secondaryContainer,
                           onTap: () => _switchNotebook(nb),
                         ),
                       );
@@ -1012,13 +887,13 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 宸︿晶闈㈡澘
-  Widget _buildLeftPanel() {
+  Widget _buildLeftPanel(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1F20),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1027,8 +902,8 @@ class _NotebookHomeState extends State<NotebookHome> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("鏉ユ簮", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-              Icon(Icons.view_sidebar_outlined, color: Colors.white.withOpacity(0.6), size: 20),
+              Text("来源", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
+              Icon(Icons.view_sidebar_outlined, color: colorScheme.onSurfaceVariant, size: 20),
             ],
           ),
           const SizedBox(height: 12),
@@ -1037,19 +912,10 @@ class _NotebookHomeState extends State<NotebookHome> {
             child: OutlinedButton.icon(
               onPressed: _isUploading ? null : _pickFile,
               icon: _isUploading
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    )
+                  ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary))
                   : const Icon(Icons.add, size: 18),
-              label: Text(_isUploading ? "姝ｅ湪涓婁紶瑙ｆ瀽..." : "娣诲姞鏉ユ簮"),
+              label: Text(_isUploading ? "正在上传解析..." : "添加来源"),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withOpacity(0.2)),
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               ),
@@ -1061,23 +927,20 @@ class _NotebookHomeState extends State<NotebookHome> {
               Expanded(
                 child: DropdownButtonFormField<String?>(
                   value: _documentsStatusFilter,
-                  dropdownColor: const Color(0xFF282A2D),
+                  dropdownColor: colorScheme.surfaceContainerHighest,
                   decoration: InputDecoration(
                     isDense: true,
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.05),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                    ),
+                    fillColor: colorScheme.surfaceContainerHighest,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                   ),
-                  items: const [
-                    DropdownMenuItem<String?>(value: null, child: Text('鍏ㄩ儴鐘舵€?)),
-                    DropdownMenuItem<String?>(value: 'processed', child: Text('宸插鐞?)),
-                    DropdownMenuItem<String?>(value: 'processing', child: Text('澶勭悊涓?)),
-                    DropdownMenuItem<String?>(value: 'pending', child: Text('绛夊緟涓?)),
-                    DropdownMenuItem<String?>(value: 'failed', child: Text('澶辫触')),
-                    DropdownMenuItem<String?>(value: 'preprocessed', child: Text('棰勫鐞?)),
+                  items: [
+                    DropdownMenuItem(value: null, child: Text('全部状态', style: TextStyle(color: colorScheme.onSurface))),
+                    DropdownMenuItem(value: 'processed', child: Text('已处理', style: TextStyle(color: colorScheme.onSurface))),
+                    DropdownMenuItem(value: 'processing', child: Text('处理中', style: TextStyle(color: colorScheme.onSurface))),
+                    DropdownMenuItem(value: 'pending', child: Text('等待中', style: TextStyle(color: colorScheme.onSurface))),
+                    DropdownMenuItem(value: 'failed', child: Text('失败', style: TextStyle(color: colorScheme.onSurface))),
+                    DropdownMenuItem(value: 'preprocessed', child: Text('预处理', style: TextStyle(color: colorScheme.onSurface))),
                   ],
                   onChanged: (value) async {
                     setState(() => _documentsStatusFilter = value);
@@ -1086,28 +949,24 @@ class _NotebookHomeState extends State<NotebookHome> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
+              IconButton.filledTonal(
                 onPressed: () async {
                   await _fetchDocuments();
                   await _refreshPipelineStatus(silent: true);
                 },
-                icon: const Icon(Icons.refresh, color: Colors.white70),
-                style: IconButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.05)),
+                icon: const Icon(Icons.refresh),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Text('鍏?$_documentsTotal 鏉?, style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12)),
+              Text('共 $_documentsTotal 条', style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
               const Spacer(),
               TextButton.icon(
-                onPressed: () async {
-                  await _refreshPipelineStatus();
-                },
+                onPressed: () async => await _refreshPipelineStatus(),
                 icon: const Icon(Icons.sync, size: 14),
-                label: const Text('闃熷垪', style: TextStyle(fontSize: 11)),
-                style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                label: const Text('队列', style: TextStyle(fontSize: 11)),
               ),
             ],
           ),
@@ -1116,28 +975,26 @@ class _NotebookHomeState extends State<NotebookHome> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildStatusMetricCard('processed', '宸插鐞?),
+                _buildStatusMetricCard(context, 'processed', '已处理'),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('processing', '澶勭悊涓?),
+                _buildStatusMetricCard(context, 'processing', '处理中'),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('pending', '绛夊緟涓?),
+                _buildStatusMetricCard(context, 'pending', '等待中'),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('failed', '澶辫触'),
+                _buildStatusMetricCard(context, 'failed', '失败'),
                 const SizedBox(width: 8),
-                _buildStatusMetricCard('preprocessed', '棰勫鐞?),
+                _buildStatusMetricCard(context, 'preprocessed', '预处理'),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          _buildPipelineCard(),
+          _buildPipelineCard(context),
           const SizedBox(height: 8),
           Expanded(
             child: _isLoadingDocuments
-                ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
+                ? Center(child: CircularProgressIndicator(color: colorScheme.primary))
                 : _documents.isEmpty
-                    ? Center(
-                        child: Text('鏆傛棤鏂囨。鏉ユ簮', style: TextStyle(color: Colors.white.withOpacity(0.4))),
-                      )
+                    ? Center(child: Text('暂无文档来源', style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6))))
                     : ListView.builder(
                         itemCount: _documents.length,
                         itemBuilder: (context, index) {
@@ -1145,49 +1002,55 @@ class _NotebookHomeState extends State<NotebookHome> {
                           final docId = _stringOf(doc['id']);
                           final selected = _selectedDocument != null && _stringOf(_selectedDocument!['id']) == docId;
                           final status = _stringOf(doc['status'], fallback: 'pending');
-                          return Container(
+                          return Card(
+                            elevation: 0,
                             margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: selected ? const Color(0xFF2A2D31) : const Color(0xFF232527),
+                            color: selected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
+                            shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selected ? Theme.of(context).colorScheme.primary : Colors.white10,
-                              ),
+                              side: BorderSide(color: selected ? colorScheme.primary : colorScheme.outlineVariant),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _shortFileName(_stringOf(doc['file_path'], fallback: '鏈懡鍚嶆枃妗?)),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _statusText(status),
-                                  style: TextStyle(fontSize: 11, color: _statusColor(status)),
-                                ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton(
-                                        onPressed: () => _loadDocumentDetail(doc),
-                                        child: const Text('鏌ョ湅', style: TextStyle(fontSize: 11)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _shortFileName(_stringOf(doc['file_path'], fallback: '未命名文档')),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: selected ? colorScheme.onSecondaryContainer : colorScheme.onSurface),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(_statusText(status), style: TextStyle(fontSize: 11, color: _statusColor(status, colorScheme))),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => _loadDocumentDetail(doc),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: EdgeInsets.zero,
+                                            minimumSize: const Size(0, 32),
+                                          ),
+                                          child: const Text('查看', style: TextStyle(fontSize: 11)),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: OutlinedButton(
-                                        onPressed: () => _deleteDocument(doc),
-                                        child: const Text('鍒犻櫎', style: TextStyle(fontSize: 11)),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => _deleteDocument(doc),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: EdgeInsets.zero,
+                                            minimumSize: const Size(0, 32),
+                                          ),
+                                          child: const Text('删除', style: TextStyle(fontSize: 11)),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -1197,25 +1060,15 @@ class _NotebookHomeState extends State<NotebookHome> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _documentsHasPrev
-                      ? () async {
-                          _documentsPage -= 1;
-                          await _fetchDocuments();
-                        }
-                      : null,
-                  child: const Text('涓婁竴椤?),
+                  onPressed: _documentsHasPrev ? () async { _documentsPage -= 1; await _fetchDocuments(); } : null,
+                  child: const Text('上一页'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _documentsHasNext
-                      ? () async {
-                          _documentsPage += 1;
-                          await _fetchDocuments();
-                        }
-                      : null,
-                  child: const Text('涓嬩竴椤?),
+                  onPressed: _documentsHasNext ? () async { _documentsPage += 1; await _fetchDocuments(); } : null,
+                  child: const Text('下一页'),
                 ),
               ),
             ],
@@ -1225,33 +1078,13 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  Widget _buildFilterChip(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.white.withOpacity(0.7)),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7))),
-          const SizedBox(width: 4),
-          Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.white.withOpacity(0.7)),
-        ],
-      ),
-    );
-  }
-
-  // 涓棿闈㈡澘
-  Widget _buildCenterPanel() {
+  Widget _buildCenterPanel(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1F20),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Column(
         children: [
@@ -1259,193 +1092,151 @@ class _NotebookHomeState extends State<NotebookHome> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                const Text("宸ヤ綔鍖?, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                Text("工作区", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
                 const Spacer(),
                 Wrap(
                   spacing: 8,
                   children: [
-                    _modeChip('瀵硅瘽', _centerMode == CenterViewMode.chat, () => setState(() => _centerMode = CenterViewMode.chat)),
-                    _modeChip('鏂囨。', _centerMode == CenterViewMode.document, () => setState(() => _centerMode = CenterViewMode.document)),
-                    _modeChip('瀛︿範', _centerMode == CenterViewMode.learning, () => setState(() => _centerMode = CenterViewMode.learning)),
-                    _modeChip('娴嬮獙', _centerMode == CenterViewMode.quiz, () => setState(() => _centerMode = CenterViewMode.quiz)),
-                    _modeChip('鍥捐氨', _centerMode == CenterViewMode.studioGraph, () => setState(() => _centerMode = CenterViewMode.studioGraph)),
-                    _modeChip('Studio', _centerMode == CenterViewMode.studioText, () => setState(() => _centerMode = CenterViewMode.studioText)),
+                    _modeChip(context, '对话', _centerMode == CenterViewMode.chat, () => setState(() => _centerMode = CenterViewMode.chat)),
+                    _modeChip(context, '文档', _centerMode == CenterViewMode.document, () => setState(() => _centerMode = CenterViewMode.document)),
+                    _modeChip(context, '学习', _centerMode == CenterViewMode.learning, () => setState(() => _centerMode = CenterViewMode.learning)),
+                    _modeChip(context, '测验', _centerMode == CenterViewMode.quiz, () => setState(() => _centerMode = CenterViewMode.quiz)),
+                    _modeChip(context, '图谱', _centerMode == CenterViewMode.studioGraph, () => setState(() => _centerMode = CenterViewMode.studioGraph)),
+                    _modeChip(context, 'Studio', _centerMode == CenterViewMode.studioText, () => setState(() => _centerMode = CenterViewMode.studioText)),
                   ],
                 ),
               ],
             ),
           ),
-          Expanded(child: _buildCenterBody()),
-          if (_centerMode == CenterViewMode.chat) _buildChatInputArea(),
+          Expanded(child: _buildCenterBody(context)),
+          if (_centerMode == CenterViewMode.chat) _buildChatInputArea(context),
         ],
       ),
     );
   }
 
-  Widget _modeChip(String label, bool selected, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected ? Theme.of(context).colorScheme.primary.withOpacity(0.18) : Colors.white10,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.white)),
-      ),
+  Widget _modeChip(BuildContext context, String label, bool selected, VoidCallback onTap) {
+    return ChoiceChip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      showCheckmark: false,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
     );
   }
 
-  Widget _buildStatusMetricCard(String key, String label) {
+  Widget _buildStatusMetricCard(BuildContext context, String key, String label) {
+    final colorScheme = Theme.of(context).colorScheme;
     final count = _statusCounts[key] ?? 0;
-    final color = _statusColor(key);
-    return Container(
-      width: 96,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+    final color = _statusColor(key, colorScheme);
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
+        side: BorderSide(color: colorScheme.outlineVariant),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(_statusIcon(key), size: 14, color: color),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: Colors.white70),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '$count',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-        ],
+      child: Container(
+        width: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_statusIcon(key), size: 14, color: color),
+                const SizedBox(width: 4),
+                Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant))),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('$count', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: colorScheme.onSurface)),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildPipelineCard() {
+  Widget _buildPipelineCard(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final pipeline = _pipelineStatus;
+    
     if (pipeline == null || pipeline.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Text(
-          '鏆傛棤澶勭悊闃熷垪鐘舵€?,
-          style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.6)),
+      return Card(
+        elevation: 0,
+        color: colorScheme.surfaceContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          child: Text('暂无处理队列状态', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
         ),
       );
     }
+    
     final busy = pipeline['busy'] == true;
     final curBatch = _intOf(pipeline['cur_batch']);
     final totalBatch = _intOf(pipeline['batchs'], fallback: 1);
     final progress = totalBatch <= 0 ? 0.0 : (curBatch / totalBatch).clamp(0.0, 1.0);
-    final jobName = _stringOf(pipeline['job_name'], fallback: '鏈煡浠诲姟');
+    final jobName = _stringOf(pipeline['job_name'], fallback: '未知任务');
     final message = _stringOf(pipeline['latest_message'], fallback: '');
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                busy ? Icons.sync : Icons.check_circle_outline,
-                size: 14,
-                color: busy ? Colors.orangeAccent : Colors.greenAccent,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  busy ? '澶勭悊涓細$jobName' : '澶勭悊闃熷垪绌洪棽',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ),
-              if (busy)
-                Text(
-                  '$curBatch/$totalBatch',
-                  style: const TextStyle(fontSize: 11, color: Colors.white70),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: busy ? progress : 1,
-            minHeight: 6,
-            backgroundColor: Colors.white10,
-            color: busy ? Colors.orangeAccent : Colors.greenAccent,
-          ),
-          if (message.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Colors.white70),
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(busy ? Icons.sync : Icons.check_circle, size: 14, color: busy ? Colors.orange : Colors.green),
+                const SizedBox(width: 6),
+                Expanded(child: Text(busy ? '处理中：$jobName' : '处理队列空闲', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colorScheme.onSurface))),
+                if (busy) Text('$curBatch/$totalBatch', style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant)),
+              ],
             ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: busy ? progress : 1,
+              minHeight: 6,
+              backgroundColor: colorScheme.surfaceContainerHighest,
+              color: busy ? Colors.orange : Colors.green,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            if (message.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(message, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant)),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildCenterBody() {
+  Widget _buildCenterBody(BuildContext context) {
     switch (_centerMode) {
-      case CenterViewMode.document:
-        return _buildDocumentDetailView();
-      case CenterViewMode.learning:
-        return _buildLearningView();
-      case CenterViewMode.quiz:
-        return _buildQuizView();
-      case CenterViewMode.studioGraph:
-        return _buildStudioGraphView();
-      case CenterViewMode.studioText:
-        return _buildStudioTextView();
-      case CenterViewMode.chat:
-      default:
-        return _buildChatView();
+      case CenterViewMode.document: return _buildDocumentDetailView(context);
+      case CenterViewMode.learning: return _buildLearningView(context);
+      case CenterViewMode.quiz: return _buildQuizView(context);
+      case CenterViewMode.studioGraph: return _buildStudioGraphView(context);
+      case CenterViewMode.studioText: return _buildStudioTextView(context);
+      case CenterViewMode.chat: default: return _buildChatView(context);
     }
   }
 
   List<Map<String, dynamic>> _asMapList(dynamic value) {
-    if (value is List) {
-      return value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
-    }
+    if (value is List) return value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
     return const [];
   }
 
   String _readStringByKeys(Map<String, dynamic> data, List<String> keys) {
     for (final key in keys) {
       final value = data[key];
-      if (value != null) {
-        final text = value.toString().trim();
-        if (text.isNotEmpty) return text;
-      }
+      if (value != null && value.toString().trim().isNotEmpty) return value.toString().trim();
     }
     return '';
   }
@@ -1453,9 +1244,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Map<String, dynamic> _getGraphRoot(dynamic payload) {
     if (payload is Map<String, dynamic>) {
       final graph = payload['graph'];
-      if (graph is Map) {
-        return Map<String, dynamic>.from(graph);
-      }
+      if (graph is Map) return Map<String, dynamic>.from(graph);
       return payload;
     }
     return {};
@@ -1464,10 +1253,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   List<_GraphNodeVm> _extractGraphNodes(Map<String, dynamic> graphRoot) {
     dynamic rawNodes;
     for (final key in ['nodes', 'vertices', 'entities', 'items']) {
-      if (graphRoot.containsKey(key)) {
-        rawNodes = graphRoot[key];
-        break;
-      }
+      if (graphRoot.containsKey(key)) { rawNodes = graphRoot[key]; break; }
     }
     final parsed = <_GraphNodeVm>[];
     final seen = <String>{};
@@ -1484,10 +1270,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   List<_GraphEdgeVm> _extractGraphEdges(Map<String, dynamic> graphRoot) {
     dynamic rawEdges;
     for (final key in ['edges', 'links', 'relations', 'relationships']) {
-      if (graphRoot.containsKey(key)) {
-        rawEdges = graphRoot[key];
-        break;
-      }
+      if (graphRoot.containsKey(key)) { rawEdges = graphRoot[key]; break; }
     }
     final parsed = <_GraphEdgeVm>[];
     for (final item in _asMapList(rawEdges)) {
@@ -1506,47 +1289,32 @@ class _NotebookHomeState extends State<NotebookHome> {
 
     try {
       final boundary = _graphExportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) {
-        throw Exception('鏈壘鍒板彲瀵煎嚭鐨勫浘璋辩敾甯冦€?);
-      }
-
+      if (boundary == null) throw Exception('未找到可导出的图谱画布。');
       final ui.Image image = await boundary.toImage(pixelRatio: 2.5);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) {
-        throw Exception('鍥捐氨瀵煎嚭澶辫触锛氭棤娉曠敓鎴愬浘鐗囧瓧鑺傛祦銆?);
-      }
+      if (byteData == null) throw Exception('图谱导出失败：无法生成图片字节流。');
       final bytes = byteData.buffer.asUint8List();
-
       final ts = DateTime.now().toIso8601String().replaceAll(':', '-');
       final filename = 'knowledge_graph_${_studioGraphLabel ?? 'export'}_$ts.png';
 
       final saveResult = await FilePicker.platform.saveFile(
-        dialogTitle: '瀵煎嚭鐭ヨ瘑鍥捐氨',
-        fileName: filename,
-        bytes: bytes,
+        dialogTitle: '导出知识图谱', fileName: filename, bytes: bytes,
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            saveResult == null
-                ? '宸插彇娑堝鍑?
-                : '瀵煎嚭鎴愬姛锛?filename',
-          ),
-        ),
+        SnackBar(content: Text(saveResult == null ? '已取消导出' : '导出成功：$filename')),
       );
     } catch (error) {
       if (!mounted) return;
       await _showError(error);
     } finally {
-      if (mounted) {
-        setState(() => _isExportingGraph = false);
-      }
+      if (mounted) setState(() => _isExportingGraph = false);
     }
   }
 
-  Widget _buildStudioTextView() {
+  Widget _buildStudioTextView(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final title = (_studioTextTitle ?? '').trim();
     final topic = (_studioTextTopic ?? '').trim();
     final type = (_studioTextType ?? '').trim();
@@ -1554,10 +1322,8 @@ class _NotebookHomeState extends State<NotebookHome> {
 
     if (content.isEmpty) {
       return Center(
-        child: Text(
-          '请在右侧 Studio 选择“报告 / 闪卡 / 测验 / 演示文稿 / 表格 / 音频 / 视频”生成文本结果',
-          style: TextStyle(color: Colors.white.withOpacity(0.7)),
-          textAlign: TextAlign.center,
+        child: Text('请在右侧 Studio 选择“报告 / 闪卡 / 测验 / 演示文稿 / 表格 / 音频 / 视频”生成文本结果',
+          style: TextStyle(color: colorScheme.onSurfaceVariant), textAlign: TextAlign.center,
         ),
       );
     }
@@ -1567,17 +1333,13 @@ class _NotebookHomeState extends State<NotebookHome> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title.isEmpty ? 'Studio 输出' : title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
+          Text(title.isEmpty ? 'Studio 输出' : title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
           const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 8, runSpacing: 8,
             children: [
-              if (type.isNotEmpty) _buildMetaTag('类型: $type'),
-              if (topic.isNotEmpty) _buildMetaTag('主题: $topic'),
+              if (type.isNotEmpty) _buildMetaTag(context, '类型: $type'),
+              if (topic.isNotEmpty) _buildMetaTag(context, '主题: $topic'),
             ],
           ),
           const SizedBox(height: 12),
@@ -1586,15 +1348,12 @@ class _NotebookHomeState extends State<NotebookHome> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFF171819),
+                color: colorScheme.surfaceContainer,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.06)),
+                border: Border.all(color: colorScheme.outlineVariant),
               ),
               child: SingleChildScrollView(
-                child: SelectableText(
-                  content,
-                  style: const TextStyle(fontSize: 14, height: 1.5),
-                ),
+                child: SelectableText(content, style: TextStyle(fontSize: 14, height: 1.5, color: colorScheme.onSurface)),
               ),
             ),
           ),
@@ -1603,27 +1362,21 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  Widget _buildMetaTag(String text) {
+  Widget _buildMetaTag(BuildContext context, String text) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 12, color: Colors.white70),
-      ),
+      decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(999)),
+      child: Text(text, style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
     );
   }
-  Widget _buildStudioGraphView() {
+
+  Widget _buildStudioGraphView(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final payload = _studioGraphPayload;
     if (payload == null) {
       return Center(
-        child: Text(
-          '璇峰湪鍙充晶 Studio 鐐瑰嚮銆屾€濈淮瀵煎浘銆嶆垨銆屼俊鎭浘銆嶇敓鎴愬浘璋?,
-          style: TextStyle(color: Colors.white.withOpacity(0.7)),
-        ),
+        child: Text('请在右侧 Studio 点击「思维导图」或「信息图」生成图谱', style: TextStyle(color: colorScheme.onSurfaceVariant)),
       );
     }
 
@@ -1637,15 +1390,9 @@ class _NotebookHomeState extends State<NotebookHome> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '鍥捐氨缁撴灉涓虹┖锛坙abel: ${_studioGraphLabel ?? ''}锛?,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
+            Text('图谱结果为空（label: ${_studioGraphLabel ?? ''}）', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
             const SizedBox(height: 8),
-            Text(
-              '鍙皾璇曞厛涓婁紶鏂囨。骞剁瓑寰?LightRAG 澶勭悊瀹屾垚锛屽啀閲嶆柊鐢熸垚銆?,
-              style: TextStyle(color: Colors.white.withOpacity(0.7)),
-            ),
+            Text('可尝试先上传文档并等待 LightRAG 处理完成，再重新生成。', style: TextStyle(color: colorScheme.onSurfaceVariant)),
           ],
         ),
       );
@@ -1664,22 +1411,17 @@ class _NotebookHomeState extends State<NotebookHome> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    '鐭ヨ瘑鍥捐氨锛?{_studioGraphLabel ?? ''}锛堣妭鐐?${nodes.length} / 杈?${edges.length}锛?,
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  child: Text('知识图谱：${_studioGraphLabel ?? ''}（节点 ${nodes.length} / 边 ${edges.length}）',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: colorScheme.onSurface),
                   ),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: _isExportingGraph ? null : _exportGraphAsPng,
                   icon: _isExportingGraph
-                      ? const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                      ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.download_outlined, size: 16),
-                  label: const Text('瀵煎嚭 PNG'),
+                  label: const Text('导出 PNG'),
                 ),
               ],
             ),
@@ -1688,19 +1430,18 @@ class _NotebookHomeState extends State<NotebookHome> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Container(
-                color: const Color(0xFF171819),
+                color: colorScheme.surfaceContainer,
                 child: InteractiveViewer(
-                  minScale: 0.3,
-                  maxScale: 4,
-                  constrained: false,
+                  minScale: 0.3, maxScale: 4, constrained: false,
                   child: RepaintBoundary(
                     key: _graphExportKey,
                     child: CustomPaint(
                       size: size,
                       painter: _KnowledgeGraphPainter(
-                        nodes: nodes,
-                        edges: edges,
-                        positions: positions,
+                        nodes: nodes, 
+                        edges: edges, 
+                        positions: positions, 
+                        colorScheme: colorScheme,
                       ),
                     ),
                   ),
@@ -1720,228 +1461,196 @@ class _NotebookHomeState extends State<NotebookHome> {
     final radius = math.min(size.width, size.height) * 0.36;
     for (var index = 0; index < nodes.length; index += 1) {
       final angle = (2 * math.pi * index) / nodes.length;
-      map[nodes[index].id] = Offset(
-        center.dx + radius * math.cos(angle),
-        center.dy + radius * math.sin(angle),
-      );
+      map[nodes[index].id] = Offset(center.dx + radius * math.cos(angle), center.dy + radius * math.sin(angle));
     }
     return map;
   }
 
-  Widget _buildChatView() {
-    if (_messages.isEmpty) return _buildEmptyChatState();
+  Widget _buildChatView(BuildContext context) {
+    if (_messages.isEmpty) return _buildEmptyChatState(context);
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       itemCount: _messages.length + (_isThinking ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index == _messages.length) return _buildThinkingBubble();
-        return _buildChatBubble(_messages[index]);
+        if (index == _messages.length) return _buildThinkingBubble(context);
+        return _buildChatBubble(context, _messages[index]);
       },
     );
   }
 
-  Widget _buildDocumentDetailView() {
+  Widget _buildDocumentDetailView(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     if (_selectedDocument == null) {
-      return Center(
-        child: Text('璇峰湪宸︿晶閫夋嫨鏂囨。', style: TextStyle(color: Colors.white.withOpacity(0.6))),
-      );
+      return Center(child: Text('请在左侧选择文档', style: TextStyle(color: colorScheme.onSurfaceVariant)));
     }
     if (_isLoadingDocumentDetail) {
-      return Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary));
+      return Center(child: CircularProgressIndicator(color: colorScheme.primary));
     }
     final doc = _selectedDocument!;
     final status = _stringOf(doc['status'], fallback: 'pending');
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
-        Text(
-          _shortFileName(_stringOf(doc['file_path'], fallback: '鏈懡鍚嶆枃妗?)),
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-        ),
+        Text(_shortFileName(_stringOf(doc['file_path'], fallback: '未命名文档')), style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
         const SizedBox(height: 8),
-        Text('ID: ${_stringOf(doc['id'])}', style: const TextStyle(color: Colors.white70)),
+        Text('ID: ${_stringOf(doc['id'])}', style: TextStyle(color: colorScheme.onSurfaceVariant)),
         const SizedBox(height: 4),
-        Text('鐘舵€? ${_statusText(status)}', style: TextStyle(color: _statusColor(status))),
+        Text('状态: ${_statusText(status)}', style: TextStyle(color: _statusColor(status, colorScheme))),
         const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(child: _metricCard('闀垮害', '${_intOf(doc['content_length'])} 瀛楃')),
+            Expanded(child: _metricCard(context, '长度', '${_intOf(doc['content_length'])} 字符')),
             const SizedBox(width: 8),
-            Expanded(child: _metricCard('鍒嗗潡', '${_intOf(doc['chunks_count'])}')),
+            Expanded(child: _metricCard(context, '分块', '${_intOf(doc['chunks_count'])}')),
             const SizedBox(width: 8),
-            Expanded(child: _metricCard('鏇存柊', _stringOf(doc['updated_at']).replaceFirst('T', ' ').split('.').first)),
+            Expanded(child: _metricCard(context, '更新', _stringOf(doc['updated_at']).replaceFirst('T', ' ').split('.').first)),
           ],
         ),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Text(
-            _stringOf(doc['content_summary'], fallback: '鏆傛棤鎽樿'),
-            style: const TextStyle(height: 1.4, color: Colors.white70),
-          ),
+          decoration: BoxDecoration(color: colorScheme.surfaceContainer, borderRadius: BorderRadius.circular(12), border: Border.all(color: colorScheme.outlineVariant)),
+          child: Text(_stringOf(doc['content_summary'], fallback: '暂无摘要'), style: TextStyle(height: 1.4, color: colorScheme.onSurface)),
         ),
         const SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('鍏宠仈鐭ヨ瘑鐐?, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            Text('${_documentKnowledgeNodes.length} 涓?, style: const TextStyle(color: Colors.white70)),
+            Text('关联知识点', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
+            Text('${_documentKnowledgeNodes.length} 个', style: TextStyle(color: colorScheme.onSurfaceVariant)),
           ],
         ),
         const SizedBox(height: 8),
         if (_documentKnowledgeNodes.isEmpty)
-          Text('鏆傛棤鐭ヨ瘑鐐?, style: TextStyle(color: Colors.white.withOpacity(0.5)))
+          Text('暂无知识点', style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6)))
         else
-          ..._documentKnowledgeNodes.take(20).map(_knowledgeNodeTile),
+          ..._documentKnowledgeNodes.take(20).map((n) => _knowledgeNodeTile(context, n)),
       ],
     );
   }
 
-  Widget _knowledgeNodeTile(Map<String, dynamic> node) {
+  Widget _knowledgeNodeTile(BuildContext context, Map<String, dynamic> node) {
+    final colorScheme = Theme.of(context).colorScheme;
     final mastery = _doubleOf(node['mastery']);
     final status = _stringOf(node['status']);
-    return Container(
+    return Card(
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_stringOf(node['name'], fallback: '鏈懡鍚嶇煡璇嗙偣'), style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(_stringOf(node['description'], fallback: '鏆傛棤鎻忚堪'), style: const TextStyle(fontSize: 12, color: Colors.white70)),
-          const SizedBox(height: 6),
-          LinearProgressIndicator(
-            value: (mastery.clamp(0, 100)) / 100,
-            minHeight: 6,
-            backgroundColor: Colors.white10,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(height: 4),
-          Text('${_statusText(status)} 路 ${mastery.toStringAsFixed(1)}%', style: TextStyle(fontSize: 11, color: _statusColor(status))),
-        ],
-      ),
-    );
-  }
-
-  Widget _metricCard(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.6))),
-          const SizedBox(height: 4),
-          Text(value, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
-        ],
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_stringOf(node['name'], fallback: '未命名知识点'), style: TextStyle(fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
+            const SizedBox(height: 4),
+            Text(_stringOf(node['description'], fallback: '暂无描述'), style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: (mastery.clamp(0, 100)) / 100, 
+              minHeight: 6,
+              backgroundColor: colorScheme.surfaceContainerHighest, 
+              color: colorScheme.primary,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            const SizedBox(height: 4),
+            Text('${_statusText(status)} · ${mastery.toStringAsFixed(1)}%', style: TextStyle(fontSize: 11, color: _statusColor(status, colorScheme))),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildLearningView() {
+  Widget _metricCard(BuildContext context, String label, String value) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 4),
+            Text(value, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: colorScheme.onSurface)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLearningView(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     if (_learningContent == null || _learningContent!.isEmpty) {
-      return Center(
-        child: Text('璇峰湪鍙充晶鎶€鑳芥爲鐐瑰嚮鈥滃涔犫€?, style: TextStyle(color: Colors.white.withOpacity(0.6))),
-      );
+      return Center(child: Text('请在右侧技能树点击“学习”', style: TextStyle(color: colorScheme.onSurfaceVariant)));
     }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
-        Text(_learningNodeName ?? '瀛︿範鍐呭', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+        Text(_learningNodeName ?? '学习内容', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Text(_learningContent!, style: const TextStyle(height: 1.45, color: Colors.white70)),
+          decoration: BoxDecoration(color: colorScheme.surfaceContainer, borderRadius: BorderRadius.circular(12), border: Border.all(color: colorScheme.outlineVariant)),
+          child: Text(_learningContent!, style: TextStyle(height: 1.45, color: colorScheme.onSurface)),
         ),
       ],
     );
   }
 
-  Widget _buildQuizView() {
+  Widget _buildQuizView(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     if (_quizQuestions.isEmpty) {
-      return Center(
-        child: Text('璇峰湪鍙充晶鎶€鑳芥爲鐐瑰嚮鈥滃嚭棰樷€?, style: TextStyle(color: Colors.white.withOpacity(0.6))),
-      );
+      return Center(child: Text('请在右侧技能树点击“出题”', style: TextStyle(color: colorScheme.onSurfaceVariant)));
     }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       children: [
-        Text('娴嬮獙锛?{_quizNodeName ?? ''}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        Text('测验：${_quizNodeName ?? ''}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
         const SizedBox(height: 10),
         ..._quizQuestions.asMap().entries.map((entry) {
           final index = entry.key;
           final question = entry.value;
           final qid = _stringOf(question['id'], fallback: 'q$index');
           final qType = _stringOf(question['type'], fallback: 'short_answer');
-          final title = _stringOf(question['question'], fallback: '鏈彁渚涢骞?);
+          final title = _stringOf(question['question'], fallback: '未提供题干');
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white10),
-            ),
+            decoration: BoxDecoration(color: colorScheme.surfaceContainer, borderRadius: BorderRadius.circular(12), border: Border.all(color: colorScheme.outlineVariant)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Q${index + 1}. $title', style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text('Q${index + 1}. $title', style: TextStyle(fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
                 const SizedBox(height: 8),
                 if (qType == 'multiple_choice')
                   ...(question['options'] as List? ?? const []).map(
                     (option) => RadioListTile<String>(
-                      dense: true,
-                      value: option.toString(),
-                      groupValue: _quizAnswers[qid]?.toString(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _quizAnswers[qid] = value);
-                      },
-                      title: Text(option.toString(), style: const TextStyle(fontSize: 13)),
+                      dense: true, value: option.toString(), groupValue: _quizAnswers[qid]?.toString(),
+                      onChanged: (value) { if (value != null) setState(() => _quizAnswers[qid] = value); },
+                      title: Text(option.toString(), style: TextStyle(fontSize: 13, color: colorScheme.onSurface)),
                     ),
                   )
                 else if (qType == 'true_false')
-                  ...['瀵?, '閿?].map(
+                  ...['对', '错'].map(
                     (option) => RadioListTile<String>(
-                      dense: true,
-                      value: option,
-                      groupValue: _quizAnswers[qid]?.toString(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _quizAnswers[qid] = value);
-                      },
-                      title: Text(option, style: const TextStyle(fontSize: 13)),
+                      dense: true, value: option, groupValue: _quizAnswers[qid]?.toString(),
+                      onChanged: (value) { if (value != null) setState(() => _quizAnswers[qid] = value); },
+                      title: Text(option, style: TextStyle(fontSize: 13, color: colorScheme.onSurface)),
                     ),
                   )
                 else
                   TextField(
                     onChanged: (value) => _quizAnswers[qid] = value.trim(),
-                    maxLines: 3,
+                    maxLines: 3, style: TextStyle(color: colorScheme.onSurface),
                     decoration: InputDecoration(
-                      hintText: '杈撳叆浣犵殑绛旀',
-                      filled: true,
-                      fillColor: Colors.white.withOpacity(0.04),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      hintText: '输入你的答案', hintStyle: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
+                      filled: true, fillColor: colorScheme.surfaceContainerHighest,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                     ),
                   ),
               ],
@@ -1950,20 +1659,14 @@ class _NotebookHomeState extends State<NotebookHome> {
         }),
         SizedBox(
           width: double.infinity,
-          child: ElevatedButton.icon(
+          child: FilledButton.icon(
             onPressed: _isSubmittingQuiz ? null : _submitQuiz,
             icon: _isSubmittingQuiz
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                  )
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.onPrimary))
                 : const Icon(Icons.check),
-            label: const Text('鎻愪氦娴嬮獙'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+            label: const Text('提交测验'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
             ),
           ),
         ),
@@ -1971,22 +1674,16 @@ class _NotebookHomeState extends State<NotebookHome> {
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white10),
-            ),
+            decoration: BoxDecoration(color: colorScheme.surfaceContainer, borderRadius: BorderRadius.circular(12), border: Border.all(color: colorScheme.outlineVariant)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '寰楀垎锛?{_doubleOf((_quizResult!['grading_result'] as Map?)?['score']).toStringAsFixed(1)}%',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                Text('得分：${_doubleOf((_quizResult!['grading_result'] as Map?)?['score']).toStringAsFixed(1)}%',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colorScheme.onSurface),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  '鐘舵€侊細${_statusText(_stringOf(_quizResult!['new_status']))} 路 鎺屾彙搴?${_doubleOf(_quizResult!['new_mastery']).toStringAsFixed(1)}%',
-                  style: const TextStyle(color: Colors.white70),
+                Text('状态：${_statusText(_stringOf(_quizResult!['new_status']))} · 掌握度 ${_doubleOf(_quizResult!['new_mastery']).toStringAsFixed(1)}%',
+                  style: TextStyle(color: colorScheme.onSurfaceVariant),
                 ),
               ],
             ),
@@ -1996,44 +1693,35 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  // 绌鸿亰澶╃姸鎬?
-  Widget _buildEmptyChatState() {
+  Widget _buildEmptyChatState(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF282A2D),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.upload_file, size: 40, color: Color(0xFFA8C7FA)),
+            decoration: BoxDecoration(color: colorScheme.primaryContainer, shape: BoxShape.circle),
+            child: Icon(Icons.upload_file, size: 40, color: colorScheme.onPrimaryContainer),
           ),
           const SizedBox(height: 24),
-          const Text(
-            "娣诲姞鏉ユ簮鍗冲彲寮€濮嬩娇鐢?,
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
-          ),
+          Text("添加来源即可开始使用", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
           const SizedBox(height: 16),
-          ElevatedButton(
+          FilledButton.icon(
             onPressed: _pickFile,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.1),
-              foregroundColor: Colors.white,
-              elevation: 0,
+            icon: const Icon(Icons.add),
+            label: const Text("上传来源"),
+            style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             ),
-            child: const Text("涓婁紶鏉ユ簮"),
           ),
         ],
       ),
     );
   }
 
-  // 鑱婂ぉ姘旀场
-  Widget _buildChatBubble(ChatMessage message) {
+  Widget _buildChatBubble(BuildContext context, ChatMessage message) {
+    final colorScheme = Theme.of(context).colorScheme;
     bool isUser = message.isUser;
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -2042,26 +1730,26 @@ class _NotebookHomeState extends State<NotebookHome> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.35),
         decoration: BoxDecoration(
-          color: isUser ? const Color(0xFF2E3135) : Colors.transparent,
+          color: isUser ? colorScheme.primaryContainer : colorScheme.surfaceContainer,
           borderRadius: BorderRadius.circular(16),
-          border: isUser ? null : Border.all(color: Colors.white.withOpacity(0.1)),
+          border: isUser ? null : Border.all(color: colorScheme.outlineVariant),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              message.text,
+              message.text, 
               style: TextStyle(
-                color: isUser ? Colors.white : Colors.white.withOpacity(0.9),
-                fontSize: 14,
-                height: 1.5,
-              ),
+                color: isUser ? colorScheme.onPrimaryContainer : colorScheme.onSurface, 
+                fontSize: 14, 
+                height: 1.5
+              )
             ),
             if (message.references.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                '鏉ユ簮: ${message.references.join(', ')}',
-                style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.5)),
+                '来源: ${message.references.join(', ')}', 
+                style: TextStyle(fontSize: 11, color: isUser ? colorScheme.onPrimaryContainer.withOpacity(0.7) : colorScheme.onSurfaceVariant)
               ),
             ],
           ],
@@ -2070,92 +1758,74 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  Widget _buildThinkingBubble() {
+  Widget _buildThinkingBubble(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
-          borderRadius: BorderRadius.circular(16),
-        ),
+        decoration: BoxDecoration(border: Border.all(color: colorScheme.outlineVariant), borderRadius: BorderRadius.circular(16)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
+            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
             const SizedBox(width: 12),
-            Text("姝ｅ湪鎬濊€?..", style: TextStyle(color: Colors.white.withOpacity(0.7))),
+            Text("正在思考...", style: TextStyle(color: colorScheme.onSurfaceVariant)),
           ],
         ),
       ),
     );
   }
 
-  // 搴曢儴杈撳叆妗?
-  Widget _buildChatInputArea() {
+  Widget _buildChatInputArea(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF282A2D),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(28)),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Row(
               children: [
+                const SizedBox(width: 16),
                 Expanded(
                   child: TextField(
-                    controller: _chatController,
+                    controller: _chatController, 
                     onSubmitted: (_) => _sendMessage(),
+                    style: TextStyle(color: colorScheme.onSurface),
                     decoration: InputDecoration(
-                      hintText: "涓婁紶鏉ユ簮鍗冲彲寮€濮嬩娇鐢?,
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 14),
-                      border: InputBorder.none,
+                      hintText: "上传来源即可开始使用", 
+                      hintStyle: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6), fontSize: 14),
+                      border: InputBorder.none, 
                       contentPadding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                   ),
                 ),
-                Text("${_documents.length} 涓潵婧?, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
+                Text("${_documents.length} 个来源", style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6), fontSize: 12)),
                 const SizedBox(width: 12),
-                InkWell(
-                  onTap: _sendMessage,
-                  borderRadius: BorderRadius.circular(20),
-                  child: CircleAvatar(
-                    radius: 16,
-                    backgroundColor: Colors.white,
-                    child: const Icon(Icons.arrow_forward, color: Colors.black, size: 18),
-                  ),
+                IconButton.filled(
+                  onPressed: _sendMessage, 
+                  icon: const Icon(Icons.arrow_upward),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            "NotebookLM 鎻愪緵鐨勫唴瀹规湭蹇呭噯纭紝鍥犳璇蜂粩缁嗘牳鏌ュ洖绛斿唴瀹广€?,
-            style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10),
-          ),
+          Text("NotebookLM 提供的内容未必准确，因此请仔细核查回答内容。", style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6), fontSize: 11)),
         ],
       ),
     );
   }
 
-  // 鍙充晶闈㈡澘
-  Widget _buildRightPanel() {
+  Widget _buildRightPanel(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1F20),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Column(
         children: [
@@ -2164,30 +1834,26 @@ class _NotebookHomeState extends State<NotebookHome> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Studio", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                Icon(Icons.view_sidebar_outlined, color: Colors.white.withOpacity(0.6), size: 20),
+                Text("Studio", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
+                Icon(Icons.dashboard_customize_outlined, color: colorScheme.onSurfaceVariant, size: 20),
               ],
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.2,
+              crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 8, mainAxisSpacing: 8, childAspectRatio: 1.1,
               children: [
-                _buildStudioTool(Icons.graphic_eq, "闊抽姒傝", () => _handleStudioAction("audio_overview")),
-                _buildStudioTool(Icons.play_circle_outline, "瑙嗛姒傝", () => _handleStudioAction("video_overview")),
-                _buildStudioTool(Icons.account_tree_outlined, "鎬濈淮瀵煎浘", () => _handleStudioAction("mindmap")),
-                _buildStudioTool(Icons.description_outlined, "鎶ュ憡", () => _handleStudioAction("report")),
-                _buildStudioTool(Icons.style_outlined, "闂崱", () => _handleStudioAction("flashcards")),
-                _buildStudioTool(Icons.help_outline, "娴嬮獙", () => _handleStudioAction("quiz")),
-                _buildStudioTool(Icons.insert_chart_outlined, "淇℃伅鍥?, () => _handleStudioAction("infographic")),
-                _buildStudioTool(Icons.slideshow, "婕旂ず鏂囩", () => _handleStudioAction("presentation")),
-                _buildStudioTool(Icons.table_chart_outlined, "鏁版嵁琛ㄦ牸", () => _handleStudioAction("table")),
+                _buildStudioTool(context, Icons.podcasts, "音频概览", () => _handleStudioAction("audio_overview")),
+                _buildStudioTool(context, Icons.smart_display_outlined, "视频概览", () => _handleStudioAction("video_overview")),
+                _buildStudioTool(context, Icons.hub_outlined, "思维导图", () => _handleStudioAction("mindmap")),
+                _buildStudioTool(context, Icons.summarize_outlined, "报告", () => _handleStudioAction("report")),
+                _buildStudioTool(context, Icons.amp_stories_outlined, "闪卡", () => _handleStudioAction("flashcards")),
+                _buildStudioTool(context, Icons.quiz_outlined, "测验", () => _handleStudioAction("quiz")),
+                _buildStudioTool(context, Icons.insights_outlined, "信息图", () => _handleStudioAction("infographic")),
+                _buildStudioTool(context, Icons.co_present_outlined, "演示文稿", () => _handleStudioAction("presentation")),
+                _buildStudioTool(context, Icons.table_view_outlined, "数据表格", () => _handleStudioAction("table")),
               ],
             ),
           ),
@@ -2196,21 +1862,9 @@ class _NotebookHomeState extends State<NotebookHome> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
+                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "姝ｅ湪鐢熸垚 $_activeStudioTool...",
-                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
-                    ),
-                  ),
+                  Expanded(child: Text("正在生成 $_activeStudioTool...", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12))),
                 ],
               ),
             ),
@@ -2218,58 +1872,45 @@ class _NotebookHomeState extends State<NotebookHome> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               children: [
-                _panelTitle('闂瓟璁剧疆'),
+                _panelTitle(context, '问答设置'),
                 DropdownButtonFormField<String>(
                   value: _qaMode,
-                  dropdownColor: const Color(0xFF282A2D),
+                  dropdownColor: colorScheme.surfaceContainerHighest,
                   decoration: InputDecoration(
-                    isDense: true,
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.05),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                    ),
+                    isDense: true, filled: true, fillColor: colorScheme.surfaceContainerHighest,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                   ),
                   items: const ['mix', 'local', 'global', 'hybrid', 'naive', 'bypass']
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() => _qaMode = value);
-                  },
+                      .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                  onChanged: (value) { if (value != null) setState(() => _qaMode = value); },
                 ),
                 CheckboxListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  value: _includeReferences,
+                  dense: true, contentPadding: EdgeInsets.zero,
+                  value: _includeReferences, activeColor: colorScheme.primary,
                   onChanged: (value) => setState(() => _includeReferences = value ?? false),
-                  title: const Text('鍖呭惈鍙傝€冩枃鐚?, style: TextStyle(fontSize: 12)),
+                  title: Text('包含参考文献', style: TextStyle(fontSize: 12, color: colorScheme.onSurface)),
                 ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Text('姣忔娴嬮獙棰樻暟', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                    Text('每次测验题数', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
                     const Spacer(),
                     DropdownButton<int>(
-                      value: _quizQuestionCount,
-                      dropdownColor: const Color(0xFF282A2D),
+                      value: _quizQuestionCount, dropdownColor: colorScheme.surfaceContainerHighest,
+                      style: TextStyle(color: colorScheme.onSurface),
                       items: [3, 4, 5, 6, 8, 10].map((e) => DropdownMenuItem(value: e, child: Text('$e'))).toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _quizQuestionCount = value);
-                      },
+                      onChanged: (value) { if (value != null) setState(() => _quizQuestionCount = value); },
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                _panelTitle('鎶€鑳芥爲'),
+                _panelTitle(context, '技能树'),
                 if (_isLoadingSkillNodes)
-                  Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
+                  Center(child: CircularProgressIndicator(color: colorScheme.primary))
                 else if (_skillNodes.isEmpty)
-                  Text('鏆傛棤鎶€鑳界偣', style: TextStyle(color: Colors.white.withOpacity(0.5)))
+                  Text('暂无技能点', style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6)))
                 else
-                  ..._skillNodes.map(_buildSkillNodeCard),
+                  ..._skillNodes.map((n) => _buildSkillNodeCard(context, n)),
               ],
             ),
           ),
@@ -2278,99 +1919,80 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  Widget _panelTitle(String title) {
+  Widget _panelTitle(BuildContext context, String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+      child: Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Theme.of(context).colorScheme.onSurface)),
     );
   }
 
-  Widget _buildSkillNodeCard(Map<String, dynamic> node) {
+  Widget _buildSkillNodeCard(BuildContext context, Map<String, dynamic> node) {
+    final colorScheme = Theme.of(context).colorScheme;
     final status = _stringOf(node['status'], fallback: 'locked');
     final mastery = _doubleOf(node['mastery']);
-    return Container(
+    return Card(
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_stringOf(node['name'], fallback: '鏈懡鍚嶆妧鑳界偣'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(_statusText(status), style: TextStyle(fontSize: 11, color: _statusColor(status))),
-          const SizedBox(height: 6),
-          LinearProgressIndicator(
-            value: (mastery.clamp(0, 100)) / 100,
-            minHeight: 5,
-            color: Theme.of(context).colorScheme.primary,
-            backgroundColor: Colors.white10,
-          ),
-          const SizedBox(height: 6),
-          Text('鎺屾彙搴?${mastery.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11, color: Colors.white70)),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              if (status == 'available' || status == 'learning')
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _startLearning(node),
-                    child: const Text('瀛︿範', style: TextStyle(fontSize: 11)),
-                  ),
-                ),
-              if (status == 'available' || status == 'learning') const SizedBox(width: 6),
-              if (status == 'learning')
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _completeLearning(node),
-                    child: const Text('瀹屾垚', style: TextStyle(fontSize: 11)),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isGeneratingQuiz ? null : () => _generateQuizForNode(node),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-              ),
-              child: _isGeneratingQuiz && _quizNodeId == _stringOf(node['id'])
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                    )
-                  : const Text('鍑洪', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_stringOf(node['name'], fallback: '未命名技能点'), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
+            const SizedBox(height: 4),
+            Text(_statusText(status), style: TextStyle(fontSize: 11, color: _statusColor(status, colorScheme))),
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: (mastery.clamp(0, 100)) / 100, minHeight: 5,
+              color: colorScheme.primary, backgroundColor: colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(3),
             ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text('掌握度 ${mastery.toStringAsFixed(1)}%', style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                if (status == 'available' || status == 'learning')
+                  Expanded(child: FilledButton.tonal(onPressed: () => _startLearning(node), child: const Text('学习', style: TextStyle(fontSize: 11)))),
+                if (status == 'available' || status == 'learning') const SizedBox(width: 6),
+                if (status == 'learning')
+                  Expanded(child: FilledButton.tonal(onPressed: () => _completeLearning(node), child: const Text('完成', style: TextStyle(fontSize: 11)))),
+              ],
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _isGeneratingQuiz ? null : () => _generateQuizForNode(node),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 10)),
+                child: _isGeneratingQuiz && _quizNodeId == _stringOf(node['id'])
+                    ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.onPrimary))
+                    : const Text('出题', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStudioTool(IconData icon, String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.02),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-        ),
+  Widget _buildStudioTool(BuildContext context, IconData icon, String label, VoidCallback onTap) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: colorScheme.outlineVariant)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 20, color: Colors.white.withOpacity(0.6)),
+            Icon(icon, size: 24, color: colorScheme.onSurfaceVariant),
             const SizedBox(height: 8),
-            Text(label, style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 11)),
+            Text(label, style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 11)),
           ],
         ),
       ),
@@ -2381,49 +2003,42 @@ class _NotebookHomeState extends State<NotebookHome> {
 class _GraphNodeVm {
   final String id;
   final String label;
-
-  const _GraphNodeVm({
-    required this.id,
-    required this.label,
-  });
+  const _GraphNodeVm({required this.id, required this.label});
 }
 
 class _GraphEdgeVm {
   final String source;
   final String target;
   final String label;
-
-  const _GraphEdgeVm({
-    required this.source,
-    required this.target,
-    this.label = '',
-  });
+  const _GraphEdgeVm({required this.source, required this.target, this.label = ''});
 }
 
 class _KnowledgeGraphPainter extends CustomPainter {
   final List<_GraphNodeVm> nodes;
   final List<_GraphEdgeVm> edges;
   final Map<String, Offset> positions;
+  final ColorScheme colorScheme;
 
   const _KnowledgeGraphPainter({
     required this.nodes,
     required this.edges,
     required this.positions,
+    required this.colorScheme,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final edgePaint = Paint()
-      ..color = Colors.white24
+      ..color = colorScheme.outlineVariant
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
     final nodePaint = Paint()
-      ..color = const Color(0xFF6EA8FE)
+      ..color = colorScheme.primaryContainer
       ..style = PaintingStyle.fill;
 
     final borderPaint = Paint()
-      ..color = Colors.white70
+      ..color = colorScheme.outline
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 
@@ -2443,23 +2058,20 @@ class _KnowledgeGraphPainter extends CustomPainter {
       final textPainter = TextPainter(
         text: TextSpan(
           text: node.label,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: colorScheme.onPrimaryContainer,
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
         ),
         maxLines: 2,
-        ellipsis: '鈥?,
+        ellipsis: '...',
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: 130);
 
       textPainter.paint(
         canvas,
-        Offset(
-          point.dx - textPainter.width / 2,
-          point.dy + 28,
-        ),
+        Offset(point.dx - textPainter.width / 2, point.dy + 28),
       );
     }
   }
@@ -2468,6 +2080,7 @@ class _KnowledgeGraphPainter extends CustomPainter {
   bool shouldRepaint(covariant _KnowledgeGraphPainter oldDelegate) {
     return oldDelegate.nodes != nodes ||
         oldDelegate.edges != edges ||
-        oldDelegate.positions != positions;
+        oldDelegate.positions != positions ||
+        oldDelegate.colorScheme != colorScheme;
   }
 }

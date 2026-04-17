@@ -12,7 +12,7 @@ function Stop-ProjectProcesses {
         $_.CommandLine -and $_.ProcessId -ne $PID
     }
 
-    $targets = $processes | Where-Object {
+    $projectTargets = $processes | Where-Object {
         ($_.CommandLine -match $repoPattern) -and (
             $_.CommandLine -match 'backend\.main:app' -or
             $_.CommandLine -match '\buvicorn\b' -or
@@ -21,6 +21,25 @@ function Stop-ProjectProcesses {
             $_.CommandLine -match 'dart-define=API_BASE_URL'
         )
     }
+
+    # Fallback: even if command line does not include repo root, still stop
+    # Python backend server and Flutter runner processes for this project.
+    $backendTargets = $processes | Where-Object {
+        ($_.CommandLine -match 'backend\.main:app' -or
+         $_.CommandLine -match '\buvicorn\b' -or
+         $_.CommandLine -match '--port\s+8000') -and
+        ($_.Name -match 'python' -or $_.Name -match 'powershell' -or $_.Name -match 'pwsh')
+    }
+
+    $flutterTargets = $processes | Where-Object {
+        ($_.CommandLine -match 'flutter\s+run' -or
+         $_.CommandLine -match 'flutter\s+pub\s+get' -or
+         $_.CommandLine -match 'dart-define=API_BASE_URL') -and
+        ($_.Name -match 'flutter' -or $_.Name -match 'dart' -or $_.Name -match 'powershell' -or $_.Name -match 'pwsh')
+    }
+
+    $targets = @($projectTargets + $backendTargets + $flutterTargets) |
+        Sort-Object -Property ProcessId -Unique
 
     if (-not $targets) {
         Write-Host "No matching project processes found."

@@ -60,6 +60,7 @@ class NotebookHome extends StatefulWidget {
 }
 
 enum CenterViewMode { chat, document, learning, quiz, studioGraph, studioText }
+enum _UserMenuAction { qaSettings }
 
 class ChatMessage {
   final String text;
@@ -71,18 +72,21 @@ class ChatMessage {
 class Notebook {
   final String id;
   String title;
-  Notebook({required this.id, required this.title});
+  IconData icon;
+  Notebook({required this.id, required this.title, this.icon = Icons.view_cozy_outlined});
 }
 
 class _NotebookHomeState extends State<NotebookHome> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _chatController = TextEditingController();
+  final TextEditingController _notebookTitleController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   
   bool _isThinking = false;
   bool _isUploading = false;
   bool _isGeneratingStudio = false;
+  bool _isStudioPanelExpanded = true;
   String? _activeStudioTool;
   CenterViewMode _centerMode = CenterViewMode.chat;
   String _qaMode = 'mix';
@@ -127,6 +131,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Notebook? _currentNotebook;
   bool _isLoadingNotebooks = false;
   bool _isCreatingNotebook = false;
+  bool _isEditingNotebookMeta = false;
 
   final String _apiBaseUrl = _resolveApiBaseUrl();
 
@@ -147,6 +152,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   @override
   void dispose() {
     _chatController.dispose();
+    _notebookTitleController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -246,6 +252,26 @@ class _NotebookHomeState extends State<NotebookHome> {
     }
   }
 
+  Map<String, int> _normalizeStatusCounts(Map<String, dynamic> raw) {
+    final normalizedRaw = <String, int>{};
+    raw.forEach((k, v) {
+      normalizedRaw[k.toLowerCase()] = _intOf(v);
+    });
+
+    // Some backends expose aliases (e.g. completed/processed) for the same stage.
+    final processed = math.max(normalizedRaw['processed'] ?? 0, normalizedRaw['completed'] ?? 0);
+    final processing = math.max(normalizedRaw['processing'] ?? 0, normalizedRaw['learning'] ?? 0);
+    final pending = normalizedRaw['pending'] ?? 0;
+    final failed = normalizedRaw['failed'] ?? 0;
+
+    return {
+      'processed': processed,
+      'processing': processing,
+      'pending': pending,
+      'failed': failed,
+    };
+  }
+
   Future<Map<String, dynamic>> _apiGet(String path, {Map<String, String>? query}) async {
     final uri = Uri.parse('$_apiBaseUrl$path').replace(queryParameters: query);
     final response = await http.get(uri);
@@ -329,10 +355,16 @@ class _NotebookHomeState extends State<NotebookHome> {
           .toList();
       final pagination = Map<String, dynamic>.from(result['pagination'] as Map? ?? {});
       final countsRaw = Map<String, dynamic>.from(result['status_counts'] as Map? ?? {});
+      final existingById = {for (final nb in _notebooks) nb.id: nb};
       final notebooks = docs.map((doc) {
         final id = _stringOf(doc['id'], fallback: DateTime.now().microsecondsSinceEpoch.toString());
-        final title = _shortFileName(_stringOf(doc['file_path'], fallback: id));
-        return Notebook(id: id, title: title);
+        final fallbackTitle = _shortFileName(_stringOf(doc['file_path'], fallback: id));
+        final existing = existingById[id];
+        return Notebook(
+          id: id,
+          title: existing?.title ?? fallbackTitle,
+          icon: existing?.icon ?? Icons.view_cozy_outlined,
+        );
       }).toList();
 
       if (!mounted) return;
@@ -341,8 +373,17 @@ class _NotebookHomeState extends State<NotebookHome> {
         _documentsTotal = _intOf(pagination['total_count']);
         _documentsHasNext = pagination['has_next'] == true;
         _documentsHasPrev = pagination['has_prev'] == true;
-        _statusCounts = countsRaw.map((k, v) => MapEntry(k, _intOf(v)));
-        _notebooks = notebooks;
+        _statusCounts = _normalizeStatusCounts(countsRaw);
+        final mergedNotebooks = <String, Notebook>{for (final nb in _notebooks) nb.id: nb};
+        for (final nb in notebooks) {
+          final existing = mergedNotebooks[nb.id];
+          mergedNotebooks[nb.id] = Notebook(
+            id: nb.id,
+            title: existing?.title ?? nb.title,
+            icon: existing?.icon ?? nb.icon,
+          );
+        }
+        _notebooks = mergedNotebooks.values.toList();
         if (_selectedDocument != null) {
           final selectedId = _stringOf(_selectedDocument!['id']);
           final refreshed = _documents.firstWhere((d) => _stringOf(d['id']) == selectedId, orElse: () => {});
@@ -351,12 +392,15 @@ class _NotebookHomeState extends State<NotebookHome> {
         if (_selectedDocument == null && _documents.isNotEmpty) {
           _selectedDocument = _documents.first;
         }
-        _currentNotebook = _selectedDocument == null
-            ? null
-            : Notebook(
-                id: _stringOf(_selectedDocument!['id']),
-                title: _shortFileName(_stringOf(_selectedDocument!['file_path'], fallback: 'Untitled')),
-              );
+        if (_currentNotebook != null) {
+          final matched = _notebooks.where((n) => n.id == _currentNotebook!.id);
+          if (matched.isNotEmpty) {
+            _currentNotebook = matched.first;
+          }
+        }
+        if (_currentNotebook == null && _notebooks.isNotEmpty) {
+          _currentNotebook = _notebooks.last;
+        }
         _isLoadingDocuments = false;
         _isLoadingNotebooks = false;
       });
@@ -387,10 +431,6 @@ class _NotebookHomeState extends State<NotebookHome> {
     if (docId.isEmpty) return;
     setState(() {
       _selectedDocument = doc;
-      _currentNotebook = Notebook(
-        id: docId,
-        title: _shortFileName(_stringOf(doc['file_path'], fallback: docId)),
-      );
       _isLoadingDocumentDetail = true;
       _centerMode = CenterViewMode.document;
     });
@@ -547,6 +587,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   }
 
   Future<void> _switchNotebook(Notebook nb) async {
+    setState(() => _currentNotebook = nb);
     final doc = _documents.firstWhere((d) => _stringOf(d['id']) == nb.id, orElse: () => {});
     if (doc.isNotEmpty) await _loadDocumentDetail(doc);
     if (!mounted) return;
@@ -578,6 +619,13 @@ class _NotebookHomeState extends State<NotebookHome> {
         if (!mounted) return;
         setState(() {
           _isUploading = false;
+          if (_currentNotebook == null && uploadedNames.isNotEmpty) {
+            _currentNotebook = Notebook(
+              id: DateTime.now().microsecondsSinceEpoch.toString(),
+              title: uploadedNames.first,
+              icon: Icons.view_cozy_outlined,
+            );
+          }
           if (uploadedNames.isNotEmpty) {
             _messages.add(ChatMessage(text: "✅ 已成功上传并解析: ${uploadedNames.join(', ')}", isUser: true));
           }
@@ -763,6 +811,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Widget _buildTopAppBar(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    const topActionGap = 8.0;
 
     return Container(
       height: 60,
@@ -773,28 +822,91 @@ class _NotebookHomeState extends State<NotebookHome> {
             icon: Icon(Icons.menu, color: colorScheme.onSurfaceVariant),
             onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
-          const SizedBox(width: 8),
-          CircleAvatar(
-            radius: 14,
-            backgroundColor: colorScheme.secondaryContainer,
-            child: Icon(Icons.view_cozy_outlined, size: 16, color: colorScheme.onSecondaryContainer),
+          const SizedBox(width: topActionGap),
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: _isEditingNotebookMeta ? _showNotebookIconPicker : null,
+            child: CircleAvatar(
+              radius: 14,
+              backgroundColor: colorScheme.secondaryContainer,
+              child: Icon(_currentNotebook?.icon ?? Icons.view_cozy_outlined, size: 16, color: colorScheme.onSecondaryContainer),
+            ),
           ),
           const SizedBox(width: 12),
-          Text(
-            _isLoadingNotebooks ? "加载中..." : (_currentNotebook?.title ?? "Untitled notebook"),
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: colorScheme.onSurface),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const buttonSize = 36.0;
+                const gap = 6.0;
+                final titleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: colorScheme.onSurface);
+                final titleText = _isLoadingNotebooks ? "加载中..." : (_currentNotebook?.title ?? "Untitled notebook");
+
+                Widget editButton = SizedBox(
+                  width: buttonSize,
+                  height: buttonSize,
+                  child: IconButton(
+                    onPressed: _toggleNotebookMetaEditing,
+                    tooltip: _isEditingNotebookMeta ? '保存笔记本信息' : '自定义笔记本',
+                    icon: Icon(_isEditingNotebookMeta ? Icons.check : Icons.edit_outlined, size: 18, color: colorScheme.onSurfaceVariant),
+                    style: IconButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(buttonSize, buttonSize),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                );
+
+                if (_isEditingNotebookMeta) {
+                  final editingText = _notebookTitleController.text;
+                  final editPainter = TextPainter(
+                    text: TextSpan(text: editingText.isEmpty ? ' ' : editingText, style: titleStyle),
+                    maxLines: 1,
+                    textDirection: Directionality.of(context),
+                  )..layout();
+                  final maxEditWidth = (constraints.maxWidth - buttonSize - gap).clamp(120.0, 360.0);
+                  final desiredEditWidth = (editPainter.width + 28).clamp(120.0, maxEditWidth);
+
+                  return Row(
+                    children: [
+                      SizedBox(
+                        width: desiredEditWidth,
+                        child: TextField(
+                          controller: _notebookTitleController,
+                          autofocus: true,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            border: InputBorder.none,
+                          ),
+                          style: titleStyle,
+                        ),
+                      ),
+                      const SizedBox(width: gap),
+                      editButton,
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: Text(
+                        titleText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: titleStyle,
+                      ),
+                    ),
+                    const SizedBox(width: gap),
+                    editButton,
+                  ],
+                );
+              },
+            ),
           ),
-          const Spacer(),
           _buildTopButton(context, Icons.add, _isCreatingNotebook ? "创建中..." : "创建笔记本", onTap: _createNewNotebook, isLoading: _isCreatingNotebook),
-          const SizedBox(width: 8),
-          _buildTopButton(context, Icons.description_outlined, "文档", onTap: () => setState(() => _centerMode = CenterViewMode.document)),
-          const SizedBox(width: 8),
-          _buildTopButton(context, Icons.school_outlined, "学习", onTap: () => setState(() => _centerMode = CenterViewMode.learning)),
-          const SizedBox(width: 8),
-          _buildTopButton(context, Icons.quiz_outlined, "测验", onTap: () => setState(() => _centerMode = CenterViewMode.quiz)),
-          const SizedBox(width: 8),
-          _buildTopButton(context, Icons.hub_outlined, "图谱", onTap: () => setState(() => _centerMode = CenterViewMode.studioGraph)),
-          const SizedBox(width: 12),
+          const SizedBox(width: topActionGap),
           
           IconButton(
             icon: Icon(
@@ -808,30 +920,145 @@ class _NotebookHomeState extends State<NotebookHome> {
             tooltip: '切换主题',
           ),
           
-          const SizedBox(width: 8),
-          Icon(Icons.grid_view_outlined, color: colorScheme.onSurfaceVariant),
-          const SizedBox(width: 16),
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: colorScheme.primary,
-            child: Icon(Icons.person_outline, size: 20, color: colorScheme.onPrimary),
+          const SizedBox(width: topActionGap),
+          IconButton(
+            onPressed: () => setState(() => _isStudioPanelExpanded = !_isStudioPanelExpanded),
+            tooltip: _isStudioPanelExpanded ? '收起 Studio 区域' : '展开 Studio 区域',
+            icon: Icon(
+              Icons.grid_view_outlined,
+              color: _isStudioPanelExpanded ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 14),
+          PopupMenuButton<_UserMenuAction>(
+            tooltip: '用户菜单',
+            onSelected: (action) {
+              if (action == _UserMenuAction.qaSettings) {
+                _showQaSettingsDialog(context);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<_UserMenuAction>(
+                value: _UserMenuAction.qaSettings,
+                child: Row(
+                  children: [
+                    Icon(Icons.tune, size: 18),
+                    SizedBox(width: 10),
+                    Text('问答设置'),
+                  ],
+                ),
+              ),
+            ],
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: colorScheme.primary,
+              child: Icon(Icons.person_outline, size: 20, color: colorScheme.onPrimary),
+            ),
           ),
         ],
       ),
     );
   }
 
+  void _toggleNotebookMetaEditing() {
+    if (_isEditingNotebookMeta) {
+      final nextTitle = _notebookTitleController.text.trim();
+      if (nextTitle.isEmpty || _currentNotebook == null) {
+        setState(() => _isEditingNotebookMeta = false);
+        return;
+      }
+      setState(() {
+        _currentNotebook!.title = nextTitle;
+        final index = _notebooks.indexWhere((n) => n.id == _currentNotebook!.id);
+        if (index >= 0) {
+          _notebooks[index].title = nextTitle;
+        }
+        _isEditingNotebookMeta = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _notebookTitleController.text = _currentNotebook?.title ?? '';
+      _isEditingNotebookMeta = true;
+    });
+  }
+
+  Future<void> _showNotebookIconPicker() async {
+    if (!_isEditingNotebookMeta || _currentNotebook == null) return;
+    final colorScheme = Theme.of(context).colorScheme;
+    final iconCandidates = <IconData>[
+      Icons.view_cozy_outlined,
+      Icons.menu_book_outlined,
+      Icons.auto_stories_outlined,
+      Icons.lightbulb_outline,
+      Icons.psychology_outlined,
+      Icons.science_outlined,
+      Icons.code_outlined,
+      Icons.school_outlined,
+      Icons.history_edu_outlined,
+      Icons.calculate_outlined,
+      Icons.draw_outlined,
+      Icons.language_outlined,
+    ];
+
+    final picked = await showDialog<IconData>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('选择笔记本图标'),
+          content: SizedBox(
+            width: 360,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: iconCandidates.map((icon) {
+                final selected = _currentNotebook!.icon == icon;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => Navigator.of(dialogContext).pop(icon),
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: selected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: selected ? colorScheme.primary : colorScheme.outlineVariant),
+                    ),
+                    child: Icon(icon, color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (picked == null || !mounted || _currentNotebook == null) return;
+    setState(() {
+      _currentNotebook!.icon = picked;
+      final index = _notebooks.indexWhere((n) => n.id == _currentNotebook!.id);
+      if (index >= 0) {
+        _notebooks[index].icon = picked;
+      }
+    });
+  }
+
   Widget _buildTopButton(BuildContext context, IconData icon, String label, {VoidCallback? onTap, bool isLoading = false}) {
-    // 使用 Material 3 原生的 Tonal Button (最适合这种次级导航动作)
+    final colorScheme = Theme.of(context).colorScheme;
     return FilledButton.tonalIcon(
       onPressed: isLoading ? null : onTap,
       icon: isLoading
-          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary))
           : Icon(icon, size: 16),
       label: Text(label, style: const TextStyle(fontSize: 13)),
       style: FilledButton.styleFrom(
+        backgroundColor: colorScheme.secondaryContainer,
+        foregroundColor: colorScheme.onSecondaryContainer,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        minimumSize: Size.zero,
+        minimumSize: const Size(0, 36),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -867,7 +1094,7 @@ class _NotebookHomeState extends State<NotebookHome> {
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          leading: Icon(Icons.menu_book_rounded, color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant),
+                          leading: Icon(nb.icon, color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant),
                           title: Text(
                             nb.title, 
                             style: TextStyle(
@@ -891,6 +1118,7 @@ class _NotebookHomeState extends State<NotebookHome> {
   Widget _buildLeftPanel(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
+      constraints: const BoxConstraints(minWidth: 300),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
@@ -903,90 +1131,32 @@ class _NotebookHomeState extends State<NotebookHome> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("来源", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
+              Text("来源", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
               Icon(Icons.view_sidebar_outlined, color: colorScheme.onSurfaceVariant, size: 20),
             ],
           ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
+            child: FilledButton.icon(
               onPressed: _isUploading ? null : _pickFile,
               icon: _isUploading
                   ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary))
                   : const Icon(Icons.add, size: 18),
               label: Text(_isUploading ? "正在上传解析..." : "添加来源"),
-              style: OutlinedButton.styleFrom(
+              style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               ),
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String?>(
-                  value: _documentsStatusFilter,
-                  dropdownColor: colorScheme.surfaceContainerHighest,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    filled: true,
-                    fillColor: colorScheme.surfaceContainerHighest,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  ),
-                  items: [
-                    DropdownMenuItem(value: null, child: Text('全部状态', style: TextStyle(color: colorScheme.onSurface))),
-                    DropdownMenuItem(value: 'processed', child: Text('已处理', style: TextStyle(color: colorScheme.onSurface))),
-                    DropdownMenuItem(value: 'processing', child: Text('处理中', style: TextStyle(color: colorScheme.onSurface))),
-                    DropdownMenuItem(value: 'pending', child: Text('等待中', style: TextStyle(color: colorScheme.onSurface))),
-                    DropdownMenuItem(value: 'failed', child: Text('失败', style: TextStyle(color: colorScheme.onSurface))),
-                    DropdownMenuItem(value: 'preprocessed', child: Text('预处理', style: TextStyle(color: colorScheme.onSurface))),
-                  ],
-                  onChanged: (value) async {
-                    setState(() => _documentsStatusFilter = value);
-                    await _fetchDocuments(resetPage: true);
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filledTonal(
-                onPressed: () async {
-                  await _fetchDocuments();
-                  await _refreshPipelineStatus(silent: true);
-                },
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
+          _buildStatusFilterBar(context),
           const SizedBox(height: 12),
           Row(
             children: [
               Text('共 $_documentsTotal 条', style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () async => await _refreshPipelineStatus(),
-                icon: const Icon(Icons.sync, size: 14),
-                label: const Text('队列', style: TextStyle(fontSize: 11)),
-              ),
             ],
-          ),
-          const SizedBox(height: 4),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildStatusMetricCard(context, 'processed', '已处理'),
-                const SizedBox(width: 8),
-                _buildStatusMetricCard(context, 'processing', '处理中'),
-                const SizedBox(width: 8),
-                _buildStatusMetricCard(context, 'pending', '等待中'),
-                const SizedBox(width: 8),
-                _buildStatusMetricCard(context, 'failed', '失败'),
-                const SizedBox(width: 8),
-                _buildStatusMetricCard(context, 'preprocessed', '预处理'),
-              ],
-            ),
           ),
           const SizedBox(height: 8),
           _buildPipelineCard(context),
@@ -1093,19 +1263,9 @@ class _NotebookHomeState extends State<NotebookHome> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Text("工作区", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
-                const Spacer(),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    _modeChip(context, '对话', _centerMode == CenterViewMode.chat, () => setState(() => _centerMode = CenterViewMode.chat)),
-                    _modeChip(context, '文档', _centerMode == CenterViewMode.document, () => setState(() => _centerMode = CenterViewMode.document)),
-                    _modeChip(context, '学习', _centerMode == CenterViewMode.learning, () => setState(() => _centerMode = CenterViewMode.learning)),
-                    _modeChip(context, '测验', _centerMode == CenterViewMode.quiz, () => setState(() => _centerMode = CenterViewMode.quiz)),
-                    _modeChip(context, '图谱', _centerMode == CenterViewMode.studioGraph, () => setState(() => _centerMode = CenterViewMode.studioGraph)),
-                    _modeChip(context, 'Studio', _centerMode == CenterViewMode.studioText, () => setState(() => _centerMode = CenterViewMode.studioText)),
-                  ],
-                ),
+                Text("工作区", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildWorkspaceModeBar(context)),
               ],
             ),
           ),
@@ -1126,36 +1286,262 @@ class _NotebookHomeState extends State<NotebookHome> {
     );
   }
 
-  Widget _buildStatusMetricCard(BuildContext context, String key, String label) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final count = _statusCounts[key] ?? 0;
-    final color = _statusColor(key, colorScheme);
-    return Card(
-      elevation: 0,
-      color: colorScheme.surfaceContainer,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant),
-      ),
-      child: Container(
-        width: 96,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(_statusIcon(key), size: 14, color: color),
-                const SizedBox(width: 4),
-                Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant))),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text('$count', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: colorScheme.onSurface)),
-          ],
+  Widget _buildWorkspaceModeBar(BuildContext context) {
+    final items = <Map<String, dynamic>>[
+      {'mode': CenterViewMode.chat, 'label': '对话', 'icon': Icons.chat_bubble_outline},
+      {'mode': CenterViewMode.document, 'label': '文档', 'icon': Icons.description_outlined},
+      {'mode': CenterViewMode.learning, 'label': '学习', 'icon': Icons.school_outlined},
+      {'mode': CenterViewMode.quiz, 'label': '测验', 'icon': Icons.quiz_outlined},
+      {'mode': CenterViewMode.studioGraph, 'label': '图谱', 'icon': Icons.hub_outlined},
+      {'mode': CenterViewMode.studioText, 'label': 'Studio', 'icon': Icons.dashboard_customize_outlined},
+    ];
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 324),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const gap = 6.0;
+            final count = items.length;
+            final totalGap = gap * (count - 1);
+            final areaWidth = (constraints.maxWidth - totalGap).clamp(0.0, double.infinity);
+            const compactWidth = 40.0;
+            const selectedMinWidth = 92.0;
+            final selectedIndex = items.indexWhere((item) => item['mode'] == _centerMode);
+            final canUseSelectedWide = selectedIndex >= 0 && areaWidth >= selectedMinWidth + compactWidth * (count - 1);
+            final equalWidth = areaWidth / count;
+
+            return Row(
+              children: items.asMap().entries.map((entry) {
+                final index = entry.key;
+                final item = entry.value;
+                final mode = item['mode'] as CenterViewMode;
+                final selected = _centerMode == mode;
+                final width = canUseSelectedWide
+                    ? (index == selectedIndex ? areaWidth - compactWidth * (count - 1) : compactWidth)
+                    : equalWidth;
+                return Row(
+                  children: [
+                    if (index > 0) const SizedBox(width: gap),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      width: width,
+                      child: _buildWorkspaceModeButton(
+                        context,
+                        icon: item['icon'] as IconData,
+                        label: item['label'] as String,
+                        selected: selected,
+                        onTap: () => setState(() => _centerMode = mode),
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            );
+          },
         ),
       ),
     );
+  }
+
+  Widget _buildWorkspaceModeButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: selected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: selected ? colorScheme.primary : colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final showLabel = selected && constraints.maxWidth >= 74;
+            final iconColor = selected ? colorScheme.primary : colorScheme.onSurfaceVariant;
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: showLabel ? 10 : 0),
+              child: showLabel
+                  ? Row(
+                      children: [
+                        Icon(icon, size: 14, color: iconColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colorScheme.onSecondaryContainer),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(child: Icon(icon, size: 14, color: iconColor)),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilterBar(BuildContext context) {
+    final statusItems = <Map<String, dynamic>>[
+      {'key': null, 'label': '全部', 'icon': Icons.label_outline, 'count': _allStatusCount()},
+      {'key': 'processed', 'label': '已处理', 'icon': _statusIcon('processed'), 'count': _statusCounts['processed'] ?? 0},
+      {'key': 'processing', 'label': '处理中', 'icon': _statusIcon('processing'), 'count': _statusCounts['processing'] ?? 0},
+      {'key': 'pending', 'label': '等待中', 'icon': _statusIcon('pending'), 'count': _statusCounts['pending'] ?? 0},
+      {'key': 'failed', 'label': '失败', 'icon': _statusIcon('failed'), 'count': _statusCounts['failed'] ?? 0},
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const statusGap = 6.0;
+        const refreshGap = 8.0;
+        const refreshSize = 40.0;
+        final statusCount = statusItems.length;
+        final totalStatusGaps = statusGap * (statusCount - 1);
+        final statusAreaWidth = constraints.maxWidth - refreshSize - refreshGap - totalStatusGaps;
+        const compactWidth = 54.0;
+        const selectedMinWidth = 108.0;
+        final selectedIndex = statusItems.indexWhere((item) => item['key'] == _documentsStatusFilter);
+        final canUseSelectedWide = selectedIndex >= 0 && statusAreaWidth >= selectedMinWidth + compactWidth * (statusCount - 1);
+        final equalWidth = statusAreaWidth / statusCount;
+
+        return Row(
+          children: [
+            ...statusItems.asMap().entries.map((entry) {
+              final index = entry.key;
+              final item = entry.value;
+              final key = item['key'] as String?;
+              final buttonWidth = canUseSelectedWide
+                  ? (index == selectedIndex
+                      ? statusAreaWidth - compactWidth * (statusCount - 1)
+                      : compactWidth)
+                  : equalWidth;
+              return Row(
+                children: [
+                  if (index > 0) const SizedBox(width: statusGap),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    width: buttonWidth,
+                    child: _buildStatusFilterButton(
+                      context,
+                      key: key,
+                      label: item['label'] as String,
+                      icon: item['icon'] as IconData,
+                      count: item['count'] as int,
+                    ),
+                  ),
+                ],
+              );
+            }),
+            const SizedBox(width: refreshGap),
+            SizedBox(
+              width: refreshSize,
+              height: refreshSize,
+              child: IconButton.filledTonal(
+                onPressed: () async {
+                  await _fetchDocuments();
+                  await _refreshPipelineStatus();
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: '刷新',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStatusFilterButton(
+    BuildContext context, {
+    required String? key,
+    required String label,
+    required IconData icon,
+    required int count,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final selected = _documentsStatusFilter == key;
+    final accentColor = key == null ? colorScheme.primary : _statusColor(key, colorScheme);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: selected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: selected ? accentColor : colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () async {
+          if (_documentsStatusFilter == key) return;
+          setState(() => _documentsStatusFilter = key);
+          await _fetchDocuments(resetPage: true);
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final showLabel = selected && constraints.maxWidth >= 96;
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: showLabel ? 12 : 10, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: showLabel ? MainAxisAlignment.start : MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 15, color: selected ? accentColor : colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? colorScheme.onSecondaryContainer : colorScheme.onSurface,
+                    ),
+                  ),
+                  if (showLabel) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  int _allStatusCount() {
+    if (_statusCounts.isEmpty) return _documentsTotal;
+    final visibleTotal =
+        (_statusCounts['processed'] ?? 0) +
+        (_statusCounts['processing'] ?? 0) +
+        (_statusCounts['pending'] ?? 0) +
+        (_statusCounts['failed'] ?? 0);
+    if (visibleTotal > 0) return visibleTotal;
+    return _documentsTotal;
   }
 
   Widget _buildPipelineCard(BuildContext context) {
@@ -1871,108 +2257,211 @@ class _NotebookHomeState extends State<NotebookHome> {
 
   Widget _buildRightPanel(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Studio", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: colorScheme.onSurface)),
-                Icon(Icons.dashboard_customize_outlined, color: colorScheme.onSurfaceVariant, size: 20),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: GridView.count(
-              crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 8, mainAxisSpacing: 8, childAspectRatio: 1.1,
-              children: [
-                _buildStudioTool(context, Icons.podcasts, "音频概览", () => _handleStudioAction("audio_overview")),
-                _buildStudioTool(context, Icons.smart_display_outlined, "视频概览", () => _handleStudioAction("video_overview")),
-                _buildStudioTool(context, Icons.hub_outlined, "思维导图", () => _handleStudioAction("mindmap")),
-                _buildStudioTool(context, Icons.summarize_outlined, "报告", () => _handleStudioAction("report")),
-                _buildStudioTool(context, Icons.amp_stories_outlined, "闪卡", () => _handleStudioAction("flashcards")),
-                _buildStudioTool(context, Icons.quiz_outlined, "测验", () => _handleStudioAction("quiz")),
-                _buildStudioTool(context, Icons.insights_outlined, "信息图", () => _handleStudioAction("infographic")),
-                _buildStudioTool(context, Icons.co_present_outlined, "演示文稿", () => _handleStudioAction("presentation")),
-                _buildStudioTool(context, Icons.table_view_outlined, "数据表格", () => _handleStudioAction("table")),
-              ],
-            ),
-          ),
-          if (_isGeneratingStudio)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text("正在生成 $_activeStudioTool...", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12))),
-                ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const panelPadding = 14.0;
+        const gridSpacing = 6.0;
+        final gridWidth = constraints.maxWidth - panelPadding * 2;
+        final tileSize = (gridWidth - gridSpacing * 3) / 4;
+        final gridHeight = tileSize * 2 + gridSpacing;
+        final extraStatusHeight = _isGeneratingStudio ? 26.0 : 0.0;
+        final expandedStudioHeight = panelPadding + 24 + 10 + gridHeight + extraStatusHeight + panelPadding;
+        final targetStudioHeight = _isStudioPanelExpanded ? expandedStudioHeight : 0.0;
+
+        return Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeInOutCubic,
+              height: targetStudioHeight,
+              child: ClipRect(
+                child: targetStudioHeight <= 0
+                    ? const SizedBox.shrink()
+                    : Card(
+                        elevation: 0,
+                        margin: EdgeInsets.zero,
+                        color: colorScheme.surfaceContainerLow,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(color: colorScheme.outlineVariant),
+                        ),
+                        child: ListView(
+                          padding: const EdgeInsets.all(panelPadding),
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("Studio", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
+                                Icon(Icons.dashboard_customize_outlined, color: colorScheme.onSurfaceVariant, size: 20),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: gridHeight,
+                              child: GridView.count(
+                                crossAxisCount: 4,
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                crossAxisSpacing: gridSpacing,
+                                mainAxisSpacing: gridSpacing,
+                                childAspectRatio: 1.0,
+                                children: [
+                                  _buildStudioTool(context, Icons.podcasts, "音频概览", () => _handleStudioAction("audio_overview")),
+                                  _buildStudioTool(context, Icons.smart_display_outlined, "视频概览", () => _handleStudioAction("video_overview")),
+                                  _buildStudioTool(context, Icons.hub_outlined, "思维导图", () => _handleStudioAction("mindmap")),
+                                  _buildStudioTool(context, Icons.summarize_outlined, "报告", () => _handleStudioAction("report")),
+                                  _buildStudioTool(context, Icons.amp_stories_outlined, "闪卡", () => _handleStudioAction("flashcards")),
+                                  _buildStudioTool(context, Icons.insights_outlined, "信息图", () => _handleStudioAction("infographic")),
+                                  _buildStudioTool(context, Icons.co_present_outlined, "演示文稿", () => _handleStudioAction("presentation")),
+                                  _buildStudioTool(context, Icons.table_view_outlined, "数据表格", () => _handleStudioAction("table")),
+                                ],
+                              ),
+                            ),
+                            if (_isGeneratingStudio) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text("正在生成 $_activeStudioTool...", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12))),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
               ),
             ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              children: [
-                _panelTitle(context, '问答设置'),
-                DropdownButtonFormField<String>(
-                  value: _qaMode,
-                  dropdownColor: colorScheme.surfaceContainerHighest,
-                  decoration: InputDecoration(
-                    isDense: true, filled: true, fillColor: colorScheme.surfaceContainerHighest,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                  ),
-                  items: const ['mix', 'local', 'global', 'hybrid', 'naive', 'bypass']
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                  onChanged: (value) { if (value != null) setState(() => _qaMode = value); },
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeInOutCubic,
+              height: _isStudioPanelExpanded ? 12 : 0,
+            ),
+            Expanded(
+              child: Card(
+                elevation: 0,
+                margin: EdgeInsets.zero,
+                color: colorScheme.surfaceContainerLow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: colorScheme.outlineVariant),
                 ),
-                CheckboxListTile(
-                  dense: true, contentPadding: EdgeInsets.zero,
-                  value: _includeReferences, activeColor: colorScheme.primary,
-                  onChanged: (value) => setState(() => _includeReferences = value ?? false),
-                  title: Text('包含参考文献', style: TextStyle(fontSize: 12, color: colorScheme.onSurface)),
-                ),
-                const SizedBox(height: 6),
-                Row(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
                   children: [
-                    Text('每次测验题数', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
-                    const Spacer(),
-                    DropdownButton<int>(
-                      value: _quizQuestionCount, dropdownColor: colorScheme.surfaceContainerHighest,
-                      style: TextStyle(color: colorScheme.onSurface),
-                      items: [3, 4, 5, 6, 8, 10].map((e) => DropdownMenuItem(value: e, child: Text('$e'))).toList(),
-                      onChanged: (value) { if (value != null) setState(() => _quizQuestionCount = value); },
-                    ),
+                    _panelTitle(context, '技能树', icon: Icons.account_tree_outlined),
+                    if (_isLoadingSkillNodes)
+                      Center(child: CircularProgressIndicator(color: colorScheme.primary))
+                    else if (_skillNodes.isEmpty)
+                      Text('暂无技能点', style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6)))
+                    else
+                      ..._skillNodes.map((n) => _buildSkillNodeCard(context, n)),
                   ],
                 ),
-                const SizedBox(height: 8),
-                _panelTitle(context, '技能树'),
-                if (_isLoadingSkillNodes)
-                  Center(child: CircularProgressIndicator(color: colorScheme.primary))
-                else if (_skillNodes.isEmpty)
-                  Text('暂无技能点', style: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6)))
-                else
-                  ..._skillNodes.map((n) => _buildSkillNodeCard(context, n)),
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _panelTitle(BuildContext context, String title) {
+  void _showQaSettingsDialog(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('问答设置'),
+              backgroundColor: colorScheme.surface,
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: _qaMode,
+                      dropdownColor: colorScheme.surfaceContainerHighest,
+                      decoration: InputDecoration(
+                        labelText: '问答模式',
+                        isDense: true,
+                        filled: true,
+                        fillColor: colorScheme.surfaceContainerHighest,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      items: const ['mix', 'local', 'global', 'hybrid', 'naive', 'bypass']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _qaMode = value);
+                        setDialogState(() {});
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: _includeReferences,
+                      activeColor: colorScheme.primary,
+                      onChanged: (value) {
+                        setState(() => _includeReferences = value ?? false);
+                        setDialogState(() {});
+                      },
+                      title: Text('包含参考文献', style: TextStyle(fontSize: 12, color: colorScheme.onSurface)),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text('每次测验题数', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+                        const Spacer(),
+                        DropdownButton<int>(
+                          value: _quizQuestionCount,
+                          dropdownColor: colorScheme.surfaceContainerHighest,
+                          style: TextStyle(color: colorScheme.onSurface),
+                          items: [3, 4, 5, 6, 8, 10].map((e) => DropdownMenuItem(value: e, child: Text('$e'))).toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _quizQuestionCount = value);
+                            setDialogState(() {});
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('完成'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _panelTitle(BuildContext context, String title, {IconData? icon}) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Theme.of(context).colorScheme.onSurface)),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: colorScheme.onSurface)),
+          if (icon != null) Icon(icon, color: colorScheme.onSurfaceVariant, size: 20),
+        ],
+      ),
     );
   }
 
@@ -2040,9 +2529,18 @@ class _NotebookHomeState extends State<NotebookHome> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 24, color: colorScheme.onSurfaceVariant),
-            const SizedBox(height: 8),
-            Text(label, style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 11)),
+            Icon(icon, size: 20, color: colorScheme.onSurfaceVariant),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 10, height: 1.15),
+              ),
+            ),
           ],
         ),
       ),
